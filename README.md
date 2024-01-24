@@ -19,15 +19,14 @@ Or, you can run locally with the --local flag. This will attempt to utilize UTF-
 ./advent --local
 ~~~~
 
-
 ## Notes
 - BBS version ANSI files are in /art
+- ANSI art files should be created @ 80x25 -- but 80th column should be EMPTY
 - Placeholder WELCOME.ANS & GOODBYE.ANS art
-- Requires door32.sys drop file from BBS
-- CP437 only, not unicode supported
-- User timeout after 1 minute no keyboard activity
-- 80x25 only
-- DOS verion uses a single BIN file for calendar art
+- Requires door32.sys drop file if running via BBS
+- CP437 via BBS, UTF-8 when running --local
+- User will timeout after 1 minute no keyboard activity
+- DOS verion uses a single .DAT file for calendar art
 
 ## ToDo
 - [ ] Detect art more than 25 rows and allow user scrolling up/down
