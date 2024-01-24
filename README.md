@@ -10,11 +10,11 @@ It also contains a DOS executable to run in dosbox.
 - DOS Source (BP7) executable - not a BBS door - for running in dosbox (DOS/madvent.exe + madvent.pas)
 
 ## Usage
-Run ./advent with the --path flag and point to the directory containing door32.sys (include trailing slash and not "door32.sys"):
+Build the Go Program as usual. Then, run ./advent with the --path flag and point to the directory containing door32.sys (include trailing slash and not "door32.sys"):
 ~~~~
 ./advent --path /path/to/dropfile/
 ~~~~
-Or, you can run locally with the --local flag. This will attempt to utilize unicode/UTF-8 encoding instead of CP437:
+Or, you can run locally with the --local flag. This will attempt to utilize UTF-8 encoding instead of CP437:
 ~~~~
 ./advent --local
 ~~~~
@@ -31,4 +31,4 @@ Or, you can run locally with the --local flag. This will attempt to utilize unic
 
 ## ToDo
 - [ ] Detect art more than 25 rows and allow user scrolling up/down
-- [x] Add UTF-8 support for local terminal usage
+- [x] Add UTF8 support for local terminal usage
