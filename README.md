@@ -30,5 +30,5 @@ Or, you can run locally with the --local flag. This will attempt to utilize unic
 - DOS verion uses a single BIN file for calendar art
 
 ## ToDo
-- [-] Detect art more than 25 rows and allow user scrolling up/down
+- [ ] Detect art more than 25 rows and allow user scrolling up/down
 - [x] Add UTF-8 support for local terminal usage
