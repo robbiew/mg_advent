@@ -10,7 +10,7 @@ It also contains a DOS executable to run in dosbox.
 - DOS Source (BP7) executable - not a BBS door - for running in dosbox (DOS/madvent.exe + madvent.pas)
 
 ## Usage
-Run ./advent with the --path flag and point to the directory containing door32.sys (include trailing slash and not "door32.sys"):
+Build the Go Program as usual. Then, run ./advent with the --path flag and point to the directory containing door32.sys (include trailing slash and not "door32.sys"):
 ~~~~
 ./advent --path /path/to/dropfile/
 ~~~~
