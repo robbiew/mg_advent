@@ -14,7 +14,7 @@ Build the Go Program as usual. Then, run ./advent with the --path flag and point
 ~~~~
 ./advent --path /path/to/dropfile/
 ~~~~
-Or, you can run locally with the --local flag. This will attempt to utilize unicode/UTF-8 encoding instead of CP437:
+Or, you can run locally with the --local flag. This will attempt to utilize UTF-8 encoding instead of CP437:
 ~~~~
 ./advent --local
 ~~~~
@@ -31,4 +31,4 @@ Or, you can run locally with the --local flag. This will attempt to utilize unic
 
 ## ToDo
 - [ ] Detect art more than 25 rows and allow user scrolling up/down
-- [x] Add UTF-8 support for local terminal usage
+- [x] Add UTF8 support for local terminal usage
