@@ -31,27 +31,41 @@ const (
 )
 
 var (
-	DropPath string
-	today    int
-	timeOut  time.Duration
+	DropPath     string
+	today        int
+	timeOut      time.Duration
+	localDisplay bool
+	u            User // Global User object
 )
 
 func init() {
 	timeOut = 1 * time.Minute
-	pathPtr := flag.String("path", "", "path to door32.sys file")
-	required := []string{"path"}
-
+	pathPtr := flag.String("path", "", "path to door32.sys file (optional if --local is set)")
+	localDisplayPtr := flag.Bool("local", false, "use local UTF-8 display instead of CP437")
 	flag.Parse()
 
-	seen := make(map[string]bool)
-	flag.Visit(func(f *flag.Flag) { seen[f.Name] = true })
-	for _, req := range required {
-		if !seen[req] {
-			fmt.Fprintf(os.Stderr, "missing path to door32.sys directory: -%s \n", req)
+	localDisplay = *localDisplayPtr // Set the global variable
+
+	if localDisplay {
+		// Set default values when --local is used
+		u = User{
+			Alias:     "SysOp",
+			TimeLeft:  120 * time.Minute,
+			Emulation: 1,
+			NodeNum:   1,
+			H:         25,
+			W:         80,
+			ModalH:    25,
+			ModalW:    80,
+		}
+	} else {
+		// Check for required --path argument if --local is not set
+		if *pathPtr == "" {
+			fmt.Fprintln(os.Stderr, "missing required -path argument")
 			os.Exit(2)
 		}
+		DropPath = *pathPtr
 	}
-	DropPath = *pathPtr
 }
 
 func getDay() {
@@ -81,7 +95,7 @@ func displayAnsiFile(filePath string) {
 		log.Fatalf("Error reading file %s: %v", filePath, err)
 	}
 	ClearScreen()
-	PrintAnsi(content, 0)
+	PrintAnsi(content, 0, localDisplay)
 }
 
 func main() {

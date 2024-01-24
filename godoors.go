@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/eiannone/keyboard"
+	"golang.org/x/text/encoding/charmap"
 )
 
 // TimerManager manages timers for idle and max timeout
@@ -56,6 +57,7 @@ var (
 
 	modalH int // in case height is odd
 	modalW int // in case width is odd
+
 )
 
 // Common ANSI escapes sequences. This is not a complete list.
@@ -375,11 +377,21 @@ func GetTermSize() (int, int) {
 }
 
 // Print ANSI art with a delay between lines
-func PrintAnsi(artContent string, delay int) {
-
+func PrintAnsi(artContent string, delay int, localDisplay bool) { // Added localDisplay as an argument
 	noSauce := TrimStringFromSauce(artContent) // strip off the SAUCE metadata
 	lines := strings.Split(noSauce, "\r\n")
+
 	for i, line := range lines {
+		if localDisplay {
+			// Convert line from CP437 to UTF-8
+			utf8Line, err := charmap.CodePage437.NewDecoder().String(line)
+			if err != nil {
+				fmt.Printf("Error converting to UTF-8: %v\n", err)
+				continue
+			}
+			line = utf8Line
+		}
+
 		if i < len(lines)-1 && i != 24 { // Check for the 25th line (index 24)
 			fmt.Println(line) // Print with a newline
 		} else {
