@@ -1,7 +1,6 @@
 # mg_advent
 
-This is an advent calendar BBS Door from a scene group called Mistgris! 
-The BBS door is Linux only and has been tested on Ubuntu 23.04 x64. You can probably cross-compile to ARM based systems (e.g. Pi).
+This is an advent calendar BBS Door. The BBS door is Linux only and has been tested on Ubuntu 23.04 x64. You can probably cross-compile to ARM based systems (e.g. Pi).
 It also contains a DOS executable to run in dosbox.
 
 ## Contents
