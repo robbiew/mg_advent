@@ -1,10 +1,15 @@
+Here’s the updated README incorporating the new details about the `NOTYET.ANS` file for users trying to run before December and the graceful exit for missing files:
+
+---
+
 # Mistigris Advent Calendar BBS Door
 
 `mg_advent` is an advent calendar BBS Door designed for Linux-based systems. This door displays ANSI art for each day of December, acting as a fun and festive addition to your BBS. It supports both BBS and local modes and includes robust error handling for missing art files or invalid dates.
 
 ## Features
 - **Dynamic Advent Calendar:** Displays daily ANSI art for December 1–25.
-- **Error Handling:** Displays ANSI art for missing files or when accessed before December.
+- **Date Restriction:** Users attempting to access the door before December 1 are shown an ANSI art message (`NOTYET.ANS`) asking them to come back.
+- **Error Handling:** If any required ANSI art file is missing, the program displays `MISSING.ANS` and gracefully exits.
 - **BBS and Local Modes:** CP437 encoding for BBS mode and UTF-8 for local terminals.
 - **Cross-Platform Capabilities:** Includes a DOS executable for use in DOSBox.
 - **Timeout:** Automatically exits after 1 minute of inactivity.
@@ -46,19 +51,19 @@
 ### Required ANSI Files
 - `WELCOME.ANS`: Welcome screen.
 - `GOODBYE.ANS`: Exit screen.
-- `MISSING.ANS`: Error screen for missing art files.
-- `NOTYET.ANS`: Error screen for accessing the calendar before December.
+- `MISSING.ANS`: Error screen displayed when one or more art files are missing.
+- `NOTYET.ANS`: Message displayed when the calendar is accessed before December.
 - Daily art files: `1_DEC23.ANS` to `25_DEC23.ANS`.
 
 ## Notes
 - **ANSI Art Requirements:**
-  - Files must be 80x25 with the 80th column empty. Ideally, tell users they need to hide the status bar in their Terminal.
+  - Files must be 80x25, with the 80th column left empty. Users are advised to hide the status bar in their terminal to avoid display issues.
 - **Timeout:**
-  - The user is logged out after 1 minute of inactivity.
+  - The program automatically exits after 1 minute of inactivity.
 - **Encoding:**
   - CP437 encoding is used in BBS mode; UTF-8 is used in local mode.
 - **DOS Version:**
-  - The DOS version (`madvent.exe`) uses a single `.DAT` file for calendar art.
+  - The DOS version (`madvent.exe`) uses a single `.DAT` file for storing calendar art.
 
 ## Example Shell Script
 Here’s an example script to launch the door with Door32.sys:
@@ -66,6 +71,12 @@ Here’s an example script to launch the door with Door32.sys:
 #!/bin/bash
 /path/to/advent --path /path/to/dropfile/
 ```
+
+## Error Handling
+1. **Before December 1:**
+   - If the program is run before December, it displays `NOTYET.ANS` and exits gracefully after the user presses any key.
+2. **Missing Files:**
+   - If any required ANSI file is missing (welcome, goodbye, or daily art files), the program displays `MISSING.ANS` and exits gracefully after the user presses any key.
 
 ## To-Do
 - Allow scrolling for art files larger than 25 rows.
