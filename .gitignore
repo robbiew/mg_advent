@@ -24,3 +24,4 @@ go.work
 # Project specific
 **/advent
 **/.DS_Store
+**/door32.sys

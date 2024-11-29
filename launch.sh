@@ -1,9 +1,9 @@
 #!/bin/bash
 export TERM=ansi
 
-cd /home/bbs/go/src/github.com/robbiew/advent
+cd ~/git/mg_advent
 
-./advent --path /bbs/temp/$1/
+./advent --path $1
 
 exit
 
