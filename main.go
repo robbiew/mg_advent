@@ -24,18 +24,18 @@ type User struct {
 }
 
 const (
-	ArtFileDir  = "art"
+	BaseArtDir  = "art"
 	WelcomeFile = "WELCOME.ANS"
 	ExitFile    = "GOODBYE.ANS"
 	DateFormat  = "_DEC23.ANS"
+	MissingFile = "MISSING.ANS" // Missing art files detected
+	NotYet      = "NOTYET.ANS"  // Come back in December
 )
 
 var (
 	DropPath     string
-	today        int
 	timeOut      time.Duration
 	localDisplay bool
-	u            User // Global User object
 )
 
 func init() {
@@ -44,41 +44,72 @@ func init() {
 	localDisplayPtr := flag.Bool("local", false, "use local UTF-8 display instead of CP437")
 	flag.Parse()
 
-	localDisplay = *localDisplayPtr // Set the global variable
+	localDisplay = *localDisplayPtr
 
-	if localDisplay {
-		// Set default values when --local is used
-		u = User{
-			Alias:     "SysOp",
-			TimeLeft:  120 * time.Minute,
-			Emulation: 1,
-			NodeNum:   1,
-			H:         25,
-			W:         80,
-			ModalH:    25,
-			ModalW:    80,
+	if !localDisplay && *pathPtr == "" {
+		fmt.Fprintln(os.Stderr, "missing required -path argument")
+		os.Exit(2)
+	}
+	DropPath = *pathPtr
+}
+
+// getCurrentYearArtDir generates the subdirectory path for the current year.
+func getCurrentYearArtDir() string {
+	return filepath.Join(BaseArtDir, strconv.Itoa(time.Now().Year()))
+}
+
+// validateArtFiles verifies the presence of all required art files and displays missing art if any are absent.
+func validateArtFiles(artDir string) {
+	requiredFiles := []string{
+		filepath.Join(artDir, WelcomeFile),
+		filepath.Join(artDir, ExitFile),
+	}
+
+	// Add daily art files for December 1–25
+	for day := 1; day <= 25; day++ {
+		requiredFiles = append(requiredFiles, filepath.Join(artDir, fmt.Sprintf("%d%s", day, DateFormat)))
+	}
+
+	// Check for missing files
+	for _, file := range requiredFiles {
+		if _, err := os.Stat(file); os.IsNotExist(err) {
+			// Display missing art message
+			displayAnsiFile(filepath.Join(artDir, MissingFile))
+			pauseAndExit()
 		}
-	} else {
-		// Check for required --path argument if --local is not set
-		if *pathPtr == "" {
-			fmt.Fprintln(os.Stderr, "missing required -path argument")
-			os.Exit(2)
-		}
-		DropPath = *pathPtr
 	}
 }
 
-func getDay() {
-	_, month, day := time.Now().Date()
-	today = 25
-	if month == time.December {
-		today = day
+// validateDate ensures the current date is valid for the advent calendar and displays a "not yet" message if not.
+func validateDate(artDir string) {
+	now := time.Now()
+	if now.Month() != time.December || now.Day() < 1 {
+		// Display "not yet" message
+		displayAnsiFile(filepath.Join(artDir, NotYet))
+		pauseAndExit()
 	}
 }
 
-func displayArt(today int) {
-	artFileName := filepath.Join(ArtFileDir, strconv.Itoa(today)+DateFormat)
-	displayAnsiFile(artFileName)
+// pauseAndExit pauses for a key press and then exits.
+func pauseAndExit() {
+	const message = "Press any key to exit..."
+	const row = 21
+	const terminalWidth = 80
+
+	// Calculate the starting column to center the message
+	startCol := (terminalWidth - len(message)) / 2
+
+	// Clear screen and position cursor at the specified row and column
+	fmt.Printf("\033[%d;%dH%s", row, startCol, message)
+
+	// Wait for a key press
+	if err := keyboard.Open(); err == nil {
+		_, _, _ = keyboard.GetKey()
+		keyboard.Close()
+	}
+
+	// Exit the program
+	os.Exit(1)
 }
 
 func ReadAnsiFile(filePath string) (string, error) {
@@ -89,6 +120,7 @@ func ReadAnsiFile(filePath string) (string, error) {
 	return string(content), nil
 }
 
+// displayAnsiFile displays the content of an ANSI file.
 func displayAnsiFile(filePath string) {
 	content, err := ReadAnsiFile(filePath)
 	if err != nil {
@@ -98,25 +130,24 @@ func displayAnsiFile(filePath string) {
 	PrintAnsi(content, 0, localDisplay)
 }
 
+// main is the program's entry point.
 func main() {
-	// Get door32.sys as user object
-	// Using TimeLeft, H, W, Emulation
 	u := Initialize(DropPath)
-	getDay()
+	artDir := getCurrentYearArtDir()
 
-	// Exit if no ANSI capabilities (sorry!)
+	validateDate(artDir)
+	validateArtFiles(artDir)
+
 	if u.Emulation != 1 {
 		fmt.Println("Sorry, ANSI is required to use this...")
-		time.Sleep(time.Duration(2) * time.Second)
-		os.Exit(0)
+		pauseAndExit()
 	}
 
 	if err := keyboard.Open(); err != nil {
 		fmt.Println(err)
+		os.Exit(1)
 	}
-	defer func() {
-		_ = keyboard.Close()
-	}()
+	defer keyboard.Close()
 
 	// start idle and max timers
 	timerManager := NewTimerManager(timeOut, u.TimeLeft)
@@ -125,10 +156,9 @@ func main() {
 
 	CursorHide()
 	ClearScreen()
+	defer CursorShow()
 
-	displayAnsiFile(filepath.Join(ArtFileDir, WelcomeFile))
-	Pause(u.H-2, u.W)
-	displayArt(today)
+	displayAnsiFile(filepath.Join(artDir, WelcomeFile))
 
 	for {
 		char, key, err := keyboard.GetKey()
@@ -136,30 +166,9 @@ func main() {
 			panic(err)
 		}
 
-		timerManager.ResetIdleTimer() // Resets the idle timer on key press
-
-		if key == keyboard.KeyArrowLeft || key == keyboard.KeyArrowRight {
-			updatedDay := today
-
-			if key == keyboard.KeyArrowLeft && today > 1 {
-				updatedDay = today - 1
-			} else if key == keyboard.KeyArrowRight && today < 25 {
-				updatedDay = today + 1
-			}
-
-			if updatedDay != today {
-				today = updatedDay
-				ClearScreen()
-				fmt.Print(Reset)
-				displayArt(today)
-			}
-		} else if string(char) == "q" || string(char) == "Q" || key == keyboard.KeyEsc {
-			defer timerManager.StopIdleTimer()
-			defer timerManager.StopMaxTimer()
-			displayAnsiFile(filepath.Join(ArtFileDir, ExitFile))
-			Pause(u.H-2, u.W)
-			CursorShow()
-			return
+		if string(char) == "q" || key == keyboard.KeyEsc {
+			displayAnsiFile(filepath.Join(artDir, ExitFile))
+			pauseAndExit()
 		}
 	}
 }
