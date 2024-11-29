@@ -1,7 +1,3 @@
-Here’s the updated README incorporating the new details about the `NOTYET.ANS` file for users trying to run before December and the graceful exit for missing files:
-
----
-
 # Mistigris Advent Calendar BBS Door
 
 `mg_advent` is an advent calendar BBS Door designed for Linux-based systems. This door displays ANSI art for each day of December, acting as a fun and festive addition to your BBS. It supports both BBS and local modes and includes robust error handling for missing art files or invalid dates.
