@@ -129,7 +129,7 @@ var (
 )
 
 func init() {
-	timeOut = 1 * time.Minute
+	timeOut = 5 * time.Minute
 	pathPtr := flag.String("path", "", "path to door32.sys file (optional if --local is set)")
 	// localDisplayPtr := flag.Bool("local", false, "use local UTF-8 display instead of CP437")
 	flag.BoolVar(&debugDisableDate, "debug-disable-date", false, "Disable validateDate check")
@@ -733,8 +733,8 @@ func main() {
 					if maxDay >= 25 {
 						centeredText = "See you next year!"
 					} else {
-						MoveCursor(33, 21)
-						fmt.Print("Tomorrow's art:")
+						MoveCursor(34, 21)
+						fmt.Print("Tomorrow's art")
 						tomorrowDate := displayDate.Add(24 * time.Hour).Format("January 2, 2006") // Add one day
 						centeredText = tomorrowDate
 					}
