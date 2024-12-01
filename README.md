@@ -6,7 +6,7 @@ This is an interactive ANSI art viewer designed to display an advent calendar wi
 
 ### General Functionality
 
-- **Daily Art Display**: Displays unique ANSI art files for each day of December (e.g., `1_DEC24.ANS` for December 1, 2024).
+- **Daily Art Display**: Displays unique ANSI art files for each day of December.
 - **Welcome Screen**: On launch, displays a **WELCOME.ANS** file with today's date centered on the screen.
 - **Navigation**:
   - Use the **Right Arrow** to navigate forward through days.
