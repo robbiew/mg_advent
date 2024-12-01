@@ -287,17 +287,3 @@ func pauseForKey() {
 	}
 	fmt.Print("\033[0m") // Reset text and background color
 }
-
-func keyPressed() bool {
-	char, key, err := keyboard.GetKey()
-	if err != nil {
-		log.Printf("Error reading key press: %v", err)
-		return false
-	}
-
-	// Process the key press
-	if char != 0 || key != 0 {
-		return true // A key was pressed
-	}
-	return false // No key was pressed
-}
