@@ -182,72 +182,104 @@ func main() {
 			os.Exit(1)
 		}
 
-		// Handle Right Arrow Navigation
-		if key == keyboard.KeyArrowRight {
-			if welcomeDisplayed {
-				// Transition from Welcome screen to the user's first day art
-				welcomeDisplayed = false
-				currentDayDisplayed = true
-				log.Printf("DEBUG: Transitioning from Welcome screen to first day (%d).", day)
-				displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(displayDate.Year())[2:])), u)
-			} else if currentDayDisplayed && day < maxDay {
-				day++
-				log.Printf("DEBUG: Navigating to day %d.", day)
-				displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(displayDate.Year())[2:])), u)
-			} else if currentDayDisplayed && day == maxDay && maxDay != 25 {
-				currentDayDisplayed = false
-				comebackDisplayed = true
-				log.Printf("DEBUG: Showing COMEBACK screen for max day (%d).", maxDay)
-				// Display the COMEBACK screen
-				comebackFilePath := filepath.Join(artDir, ComeBack)
-				if _, err := os.Stat(comebackFilePath); err == nil {
-					log.Println("DEBUG: Displaying COMEBACK screen.")
-					displayAnsiFile(comebackFilePath, u)
+		// Handle menu selection for 2023 Calendar
+		if welcomeDisplayed && string(char) == "1" {
+			// Set up for the 2023 calendar
+			artDir = filepath.Join(BaseArtDir, "2023")
+			maxDay = 25 // No date restrictions for 2023
+			day = 1
+			currentDayDisplayed = true
+			welcomeDisplayed = false // Exit the welcome menu
+			log.Println("DEBUG: Switching to 2023 Calendar.")
+			displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC23.ANS", day)), u)
+		}
 
-					// Add centered text
-					var centeredText string
-					if maxDay >= 25 {
-						centeredText = "See you next year!"
+		// Navigation logic for the 2024 calendar (default)
+		if artDir == filepath.Join(BaseArtDir, "2024") {
+			// Handle Right Arrow Navigation
+			if key == keyboard.KeyArrowRight {
+				if welcomeDisplayed {
+					// Transition from Welcome screen to the user's first day art
+					welcomeDisplayed = false
+					currentDayDisplayed = true
+					log.Printf("DEBUG: Transitioning from Welcome screen to first day (%d).", day)
+					displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(displayDate.Year())[2:])), u)
+				} else if currentDayDisplayed && day < maxDay {
+					day++
+					log.Printf("DEBUG: Navigating to day %d.", day)
+					displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(displayDate.Year())[2:])), u)
+				} else if currentDayDisplayed && day == maxDay && maxDay != 25 {
+					currentDayDisplayed = false
+					comebackDisplayed = true
+					log.Printf("DEBUG: Showing COMEBACK screen for max day (%d).", maxDay)
+					// Display the COMEBACK screen
+					comebackFilePath := filepath.Join(artDir, ComeBack)
+					if _, err := os.Stat(comebackFilePath); err == nil {
+						log.Println("DEBUG: Displaying COMEBACK screen.")
+						displayAnsiFile(comebackFilePath, u)
+
+						// Add centered text
+						var centeredText string
+						if maxDay >= 25 {
+							centeredText = "See you next year!"
+						} else {
+							MoveCursor(34, 21)
+							fmt.Print("Tomorrow's art")
+							tomorrowDate := displayDate.Add(24 * time.Hour).Format("January 2, 2006") // Add one day
+							centeredText = tomorrowDate
+						}
+
+						screenWidth := 82 // Assume a standard 80-character wide screen
+						x := (screenWidth - len(centeredText)) / 2
+						y := 22 // Example: Place the text near the bottom of the screen (row 24)
+
+						// Move the cursor to the specified X, Y position and print the text
+						fmt.Printf("\033[%d;%dH%s", y, x, centeredText) // ANSI escape sequence for cursor positioning
 					} else {
-						MoveCursor(34, 21)
-						fmt.Print("Tomorrow's art")
-						tomorrowDate := displayDate.Add(24 * time.Hour).Format("January 2, 2006") // Add one day
-						centeredText = tomorrowDate
+						log.Printf("DEBUG: COMEBACK screen file not found: %s", comebackFilePath)
 					}
 
-					screenWidth := 82 // Assume a standard 80-character wide screen
-					x := (screenWidth - len(centeredText)) / 2
-					y := 22 // Example: Place the text near the bottom of the screen (row 24)
-
-					// Move the cursor to the specified X, Y position and print the text
-					fmt.Printf("\033[%d;%dH%s", y, x, centeredText) // ANSI escape sequence for cursor positioning
-				} else {
-					log.Printf("DEBUG: COMEBACK screen file not found: %s", comebackFilePath)
+				} else if comebackDisplayed {
+					log.Printf("DEBUG: Right arrow pressed on COMEBACK screen; no action taken.")
 				}
+			}
 
-			} else if comebackDisplayed {
-				log.Printf("DEBUG: Right arrow pressed on COMEBACK screen; no action taken.")
+			// Handle Left Arrow Navigation
+			if key == keyboard.KeyArrowLeft {
+				if welcomeDisplayed {
+					log.Printf("DEBUG: Left arrow pressed on Welcome screen; no action taken.")
+				} else if comebackDisplayed {
+					comebackDisplayed = false
+					currentDayDisplayed = true
+					log.Printf("DEBUG: Navigating back to current day (%d) from COMEBACK screen.", maxDay)
+					displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", maxDay, strconv.Itoa(displayDate.Year())[2:])), u)
+				} else if currentDayDisplayed && day > 1 {
+					day--
+					log.Printf("DEBUG: Navigating to day %d.", day)
+					displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(displayDate.Year())[2:])), u)
+				} else if currentDayDisplayed && day == 1 {
+					currentDayDisplayed = false
+					welcomeDisplayed = true
+					log.Printf("DEBUG: Navigating to Welcome screen from day %d.", day)
+					displayAnsiFile(filepath.Join(artDir, WelcomeFile), u)
+				}
 			}
 		}
 
-		// Handle Left Arrow Navigation
-		if key == keyboard.KeyArrowLeft {
-			if welcomeDisplayed {
-				log.Printf("DEBUG: Left arrow pressed on Welcome screen; no action taken.")
-			} else if comebackDisplayed {
-				comebackDisplayed = false
-				currentDayDisplayed = true
-				log.Printf("DEBUG: Navigating back to current day (%d) from COMEBACK screen.", maxDay)
-				displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", maxDay, strconv.Itoa(displayDate.Year())[2:])), u)
-			} else if currentDayDisplayed && day > 1 {
-				day--
-				log.Printf("DEBUG: Navigating to day %d.", day)
-				displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(displayDate.Year())[2:])), u)
-			} else if currentDayDisplayed && day == 1 {
-				currentDayDisplayed = false
-				welcomeDisplayed = true
-				log.Printf("DEBUG: Navigating to Welcome screen from day %d.", day)
-				displayAnsiFile(filepath.Join(artDir, WelcomeFile), u)
+		// Navigation logic for the 2023 calendar
+		if artDir == filepath.Join(BaseArtDir, "2023") {
+			if key == keyboard.KeyArrowRight {
+				if day < maxDay {
+					day++
+					log.Printf("DEBUG: Navigating to day %d in 2023 Calendar.", day)
+					displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC23.ANS", day)), u)
+				}
+			} else if key == keyboard.KeyArrowLeft {
+				if day > 1 {
+					day--
+					log.Printf("DEBUG: Navigating to day %d in 2023 Calendar.", day)
+					displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC23.ANS", day)), u)
+				}
 			}
 		}
 	}
