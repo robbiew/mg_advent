@@ -190,6 +190,7 @@ func main() {
 			day = 1
 			currentDayDisplayed = true
 			welcomeDisplayed = false // Exit the welcome menu
+			comebackDisplayed = false
 			log.Println("DEBUG: Switching to 2023 Calendar.")
 			displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC23.ANS", day)), u)
 		}
@@ -269,16 +270,67 @@ func main() {
 		// Navigation logic for the 2023 calendar
 		if artDir == filepath.Join(BaseArtDir, "2023") {
 			if key == keyboard.KeyArrowRight {
-				if day < maxDay {
+				if comebackDisplayed {
+					// Right arrow is disabled on the COMEBACK screen
+					log.Println("DEBUG: Right arrow key pressed on COMEBACK screen for 2023; no action taken.")
+					continue
+				} else if currentDayDisplayed && day < maxDay {
 					day++
 					log.Printf("DEBUG: Navigating to day %d in 2023 Calendar.", day)
 					displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC23.ANS", day)), u)
+				} else if currentDayDisplayed && day == maxDay {
+					currentDayDisplayed = false
+					comebackDisplayed = true
+					log.Printf("DEBUG: Showing COMEBACK screen for 2023 Calendar.")
+					// Display the COMEBACK screen for 2023
+					comebackFilePath := filepath.Join(artDir, ComeBack)
+					if _, err := os.Stat(comebackFilePath); err == nil {
+						log.Println("DEBUG: Displaying COMEBACK screen for 2023.")
+						displayAnsiFile(comebackFilePath, u)
+					} else {
+						log.Printf("DEBUG: COMEBACK screen file not found for 2023: %s", comebackFilePath)
+					}
 				}
 			} else if key == keyboard.KeyArrowLeft {
-				if day > 1 {
+				if comebackDisplayed {
+					// Transition back to the last day from COMEBACK screen
+					comebackDisplayed = false
+					currentDayDisplayed = true
+					log.Printf("DEBUG: Navigating back to day %d from COMEBACK screen in 2023 Calendar.", maxDay)
+					displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC23.ANS", maxDay)), u)
+				} else if day > 1 {
 					day--
 					log.Printf("DEBUG: Navigating to day %d in 2023 Calendar.", day)
 					displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC23.ANS", day)), u)
+				} else if day == 1 {
+					// Transition back to the 2024 WELCOME screen
+					artDir = filepath.Join(BaseArtDir, "2024")
+					welcomeDisplayed = true
+					currentDayDisplayed = false
+
+					// Recalculate today's date logic for the 2024 calendar
+					displayDate := time.Now()
+					if debugDisableDate && debugDateOverride != "" {
+						overrideDate := parseDebugDate(debugDateOverride)
+						if overrideDate.Year() == 2024 && overrideDate.Month() == time.December {
+							displayDate = overrideDate
+						}
+					}
+
+					maxDay = displayDate.Day()
+					if displayDate.Month() != time.December || maxDay > 25 {
+						maxDay = 25 // Restrict to December 25
+					}
+
+					// Reset the `day` variable to the current day
+					day = displayDate.Day()
+					if day > maxDay {
+						day = maxDay
+					}
+
+					log.Printf("DEBUG: Navigating back to 2024 WELCOME screen. Today's day: %d, Max day: %d.", day, maxDay)
+					displayAnsiFile(filepath.Join(artDir, WelcomeFile), u)
+
 				}
 			}
 		}
