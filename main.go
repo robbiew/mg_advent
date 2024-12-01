@@ -263,12 +263,59 @@ func main() {
 					welcomeDisplayed = true
 					log.Printf("DEBUG: Navigating to Welcome screen from day %d.", day)
 					displayAnsiFile(filepath.Join(artDir, WelcomeFile), u)
+					todayDate := displayDate.Format("January 02, 2006") // Format the date as "Month Day, Year"
+					centeredText := todayDate
+					screenWidth := 82 // Assume a standard 80-character wide screen
+					x := (screenWidth - len(centeredText)) / 2
+					y := 20
+
+					// Move the cursor to the specified X, Y position and print the text
+					fmt.Printf("\033[%d;%dH%s", y, x, centeredText) // ANSI escape sequence for cursor positioning
 				}
 			}
 		}
 
 		// Navigation logic for the 2023 calendar
 		if artDir == filepath.Join(BaseArtDir, "2023") {
+			if string(char) == "1" && comebackDisplayed && artDir == filepath.Join(BaseArtDir, "2023") {
+				// Transition back to the 2024 WELCOME screen
+				artDir = filepath.Join(BaseArtDir, "2024")
+				welcomeDisplayed = true
+				currentDayDisplayed = false
+				comebackDisplayed = false
+
+				// Recalculate today's date logic for the 2024 calendar
+				displayDate := time.Now()
+				if debugDisableDate && debugDateOverride != "" {
+					overrideDate := parseDebugDate(debugDateOverride)
+					if overrideDate.Year() == 2024 && overrideDate.Month() == time.December {
+						displayDate = overrideDate
+					}
+				}
+
+				maxDay = displayDate.Day()
+				if displayDate.Month() != time.December || maxDay > 25 {
+					maxDay = 25 // Restrict to December 25
+				}
+
+				// Reset the `day` variable to the current day
+				day = displayDate.Day()
+				if day > maxDay {
+					day = maxDay
+				}
+
+				log.Println("DEBUG: User returned to 2024 WELCOME screen from 2023 COMEBACK menu.")
+				displayAnsiFile(filepath.Join(artDir, WelcomeFile), u)
+				todayDate := displayDate.Format("January 02, 2006") // Format the date as "Month Day, Year"
+				centeredText := todayDate
+				screenWidth := 82 // Assume a standard 80-character wide screen
+				x := (screenWidth - len(centeredText)) / 2
+				y := 20
+
+				// Move the cursor to the specified X, Y position and print the text
+				fmt.Printf("\033[%d;%dH%s", y, x, centeredText) // ANSI escape sequence for cursor positioning
+				continue
+			}
 			if key == keyboard.KeyArrowRight {
 				if comebackDisplayed {
 					// Right arrow is disabled on the COMEBACK screen
