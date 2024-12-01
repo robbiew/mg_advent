@@ -16,7 +16,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/eiannone/keyboard"
-	"golang.org/x/text/encoding/charmap"
 )
 
 type User struct {
@@ -315,7 +314,7 @@ Get the terminal size
 - Terminal sends back the largest row + col size
 - Read in the result
 */
-func GetTermSize() (int, int) {
+func getTermSize() (int, int) {
 	// Set the terminal to raw mode so we aren't waiting for CLRF rom user (to be undone with `-raw`)
 	rawMode := exec.Command("/bin/stty", "raw")
 	rawMode.Stdin = os.Stdin
@@ -370,11 +369,10 @@ func GetTermSize() (int, int) {
 
 }
 
-// Get info from the Drop File, h, w
+// Initialize fetches terminal dimensions and creates a User object
 func Initialize(path string) User {
-
 	alias, timeLeft, emulation, nodeNum := DropFileData(path)
-	h, w := GetTermSize()
+	h, w := getTermSize()
 
 	if h%2 == 0 {
 		modalH = h
@@ -429,7 +427,7 @@ func getCurrentYearArtDir() string {
 	return filepath.Join(BaseArtDir, strconv.Itoa(time.Now().Year()))
 }
 
-func validateArtFiles(artDir string) {
+func validateArtFiles(artDir string, u User) {
 	requiredFiles := []string{
 		filepath.Join(artDir, WelcomeFile),
 		filepath.Join(artDir, ExitFile),
@@ -461,7 +459,7 @@ func validateArtFiles(artDir string) {
 		// Display the missing art message
 		missingArtFile := filepath.Join(artDir, MissingFile)
 		if _, err := os.Stat(missingArtFile); err == nil {
-			displayAnsiFile(missingArtFile)
+			displayAnsiFile(missingArtFile, u)
 		} else {
 			fmt.Println("\nMissing art files detected! Let the Sysop know.")
 		}
@@ -481,11 +479,11 @@ func validateArtFiles(artDir string) {
 }
 
 // validateDate ensures the current date is valid for the advent calendar and displays a "not yet" message if not.
-func validateDate(artDir string) {
+func validateDate(artDir string, u User) {
 	now := time.Now()
 	if now.Month() != time.December || now.Day() < 1 {
 		// Display "not yet" message
-		displayAnsiFile(filepath.Join(artDir, NotYet))
+		displayAnsiFile(filepath.Join(artDir, NotYet), u)
 		// Reset colors and cursor
 		fmt.Print("\033[0m") // ANSI escape code to reset text and background
 		CursorShow()         // Show the cursor if it was hidden
@@ -514,40 +512,43 @@ func readAnsiFile(filePath string) (string, error) {
 }
 
 // displayAnsiFile displays the content of an ANSI file.
-func displayAnsiFile(filePath string) {
+func displayAnsiFile(filePath string, user User) {
 	fmt.Print(Reset) // Reset text and background colors before displaying new art
 	ClearScreen()    // Clear the screen
+
+	// Read the ANSI file content
 	content, err := readAnsiFile(filePath)
 	if err != nil {
-		log.Fatalf("Error reading file %s: %v", filePath, err)
+		log.Printf("ERROR: Failed to read ANSI file %s: %v", filePath, err)
+		fmt.Println("Error: Unable to load art. Please contact the Sysop.")
+		return
 	}
-	printAnsi(content, 0, localDisplay)
+
+	if content == "" {
+		log.Printf("ERROR: ANSI file %s is empty or unreadable.", filePath)
+		fmt.Println("Error: The art file is empty or invalid.")
+		return
+	}
+
+	// Print the ANSI content, respecting terminal height and width
+	printAnsi(content, 0, user.H)
 }
 
-// Print ANSI art with a delay between lines
-func printAnsi(artContent string, delay int, localDisplay bool) {
+// Print ANSI art with a delay between lines and terminal size constraints
+func printAnsi(artContent string, delay int, terminalHeight int) {
 	noSauce := trimStringFromSauce(artContent) // Strip off the SAUCE metadata
 	lines := strings.Split(noSauce, "\r\n")
 
-	for i, line := range lines {
-		if localDisplay {
-			// Convert line from CP437 to UTF-8
-			utf8Line, err := charmap.CodePage437.NewDecoder().String(line)
-			if err != nil {
-				fmt.Printf("Error converting to UTF-8: %v\n", err)
-				continue
-			}
-			line = utf8Line
-		}
-
-		// Determine if the current line is the last one
-		isLastLine := (i == len(lines)-1)
+	// Limit the number of lines printed to the terminal height
+	for i := 0; i < len(lines) && i < terminalHeight; i++ {
+		line := lines[i]
 
 		// Print the line
-		if isLastLine {
-			fmt.Print(line) // No newline for the last line
+		if i == terminalHeight-1 {
+			// Avoid newline for the last line within terminal height
+			fmt.Print(line)
 		} else {
-			fmt.Println(line) // Add newline for all other lines
+			fmt.Println(line)
 		}
 
 		// Optional delay between lines
@@ -595,8 +596,6 @@ func pauseForKey() {
 }
 
 func main() {
-	log.Printf("Flags - debugDisableDate: %v, debugDisableArt: %v, debugDateOverride: %s, path: %s",
-		debugDisableDate, debugDisableArt, debugDateOverride, DropPath)
 
 	u := Initialize(DropPath)
 	artDir := getCurrentYearArtDir()
@@ -614,14 +613,14 @@ func main() {
 		}
 	} else {
 		log.Println("DEBUG: Running validateDate.")
-		validateDate(artDir)
+		validateDate(artDir, u)
 		displayDate = time.Now()
 	}
 
 	// Validate art files unless disabled by debug flag
 	if !debugDisableArt {
 		log.Println("DEBUG: Running validateArtFiles.")
-		validateArtFiles(artDir)
+		validateArtFiles(artDir, u)
 	}
 
 	// Check for ANSI emulation
@@ -675,7 +674,7 @@ func main() {
 	welcomeFilePath := filepath.Join(artDir, WelcomeFile)
 	if _, err := os.Stat(welcomeFilePath); err == nil {
 		log.Println("DEBUG: Displaying Welcome screen.")
-		displayAnsiFile(welcomeFilePath)
+		displayAnsiFile(welcomeFilePath, u)
 
 		todayDate := displayDate.Format("January 2, 2006") // Format the date as "Month Day, Year"
 		centeredText := todayDate
@@ -700,7 +699,7 @@ func main() {
 		// Handle Quit (Q or ESC)
 		if string(char) == "q" || key == keyboard.KeyEsc {
 			log.Println("DEBUG: Exiting on user command.")
-			displayAnsiFile(filepath.Join(artDir, ExitFile))
+			displayAnsiFile(filepath.Join(artDir, ExitFile), u)
 			pauseForKey()
 			fmt.Print(Reset) // Reset text and background
 			CursorShow()     // Show the cursor
@@ -714,11 +713,11 @@ func main() {
 				welcomeDisplayed = false
 				currentDayDisplayed = true
 				log.Printf("DEBUG: Transitioning from Welcome screen to first day (%d).", day)
-				displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(displayDate.Year())[2:])))
+				displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(displayDate.Year())[2:])), u)
 			} else if currentDayDisplayed && day < maxDay {
 				day++
 				log.Printf("DEBUG: Navigating to day %d.", day)
-				displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(displayDate.Year())[2:])))
+				displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(displayDate.Year())[2:])), u)
 			} else if currentDayDisplayed && day == maxDay && maxDay != 25 {
 				currentDayDisplayed = false
 				comebackDisplayed = true
@@ -727,7 +726,7 @@ func main() {
 				comebackFilePath := filepath.Join(artDir, ComeBack)
 				if _, err := os.Stat(comebackFilePath); err == nil {
 					log.Println("DEBUG: Displaying COMEBACK screen.")
-					displayAnsiFile(comebackFilePath)
+					displayAnsiFile(comebackFilePath, u)
 
 					// Add centered text
 					var centeredText string
@@ -763,16 +762,16 @@ func main() {
 				comebackDisplayed = false
 				currentDayDisplayed = true
 				log.Printf("DEBUG: Navigating back to current day (%d) from COMEBACK screen.", maxDay)
-				displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", maxDay, strconv.Itoa(displayDate.Year())[2:])))
+				displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", maxDay, strconv.Itoa(displayDate.Year())[2:])), u)
 			} else if currentDayDisplayed && day > 1 {
 				day--
 				log.Printf("DEBUG: Navigating to day %d.", day)
-				displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(displayDate.Year())[2:])))
+				displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(displayDate.Year())[2:])), u)
 			} else if currentDayDisplayed && day == 1 {
 				currentDayDisplayed = false
 				welcomeDisplayed = true
 				log.Printf("DEBUG: Navigating to Welcome screen from day %d.", day)
-				displayAnsiFile(filepath.Join(artDir, WelcomeFile))
+				displayAnsiFile(filepath.Join(artDir, WelcomeFile), u)
 			}
 		}
 	}
