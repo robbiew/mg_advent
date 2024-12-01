@@ -484,6 +484,7 @@ func validateDate(artDir string, u User) {
 	if now.Month() != time.December || now.Day() < 1 {
 		// Display "not yet" message
 		displayAnsiFile(filepath.Join(artDir, NotYet), u)
+		pauseForKey()
 		// Reset colors and cursor
 		fmt.Print("\033[0m") // ANSI escape code to reset text and background
 		CursorShow()         // Show the cursor if it was hidden
