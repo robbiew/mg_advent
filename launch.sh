@@ -1,6 +1,6 @@
 #!/bin/bash
 export TERM=ansi
-cd ~/git/mg_advent
-./advent --path $1
+cd /home/bbs/git/mg_advent
+./advent --path /talisman/temp/$1/ --debug-disable-date --debug-date=2024-12-05
 exit
 

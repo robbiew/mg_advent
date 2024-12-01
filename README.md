@@ -1,79 +1,87 @@
-# Mistigris Advent Calendar BBS Door
+# Advent ANSI Calendar Viewer
 
-`mg_advent` is an advent calendar BBS Door designed for Linux-based systems. This door displays ANSI art for each day of December, acting as a fun and festive addition to your BBS. It supports both BBS and local modes and includes robust error handling for missing art files or invalid dates.
+This is an interactive ANSI art viewer designed to display an advent calendar with unique art files for each day in December. It supports navigation, custom date overrides, and enhanced user feedback through centered text messages.
 
 ## Features
-- **Dynamic Advent Calendar:** Displays daily ANSI art for December 1–25.
-- **Date Restriction:** Users attempting to access the door before December 1 are shown an ANSI art message (`NOTYET.ANS`) asking them to come back.
-- **Error Handling:** If any required ANSI art file is missing, the program displays `MISSING.ANS` and gracefully exits.
-- **BBS and Local Modes:** CP437 encoding for BBS mode and UTF-8 for local terminals.
-- **Cross-Platform Capabilities:** Includes a DOS executable for use in DOSBox.
-- **Timeout:** Automatically exits after 1 minute of inactivity.
 
-## Contents
-- **Go Source Code:**
-  - `main.go`: Main entry point for the program.
-  - `godoor.go`: Utilities and helpers for the Go door.
-- **Example Launch Script:**
-  - A shell script for launching with Door32.sys.
-- **DOS Executable and Source Code:**
-  - `madvent.exe` (DOS executable) and `madvent.pas` (Turbo Pascal source code) for running in DOSBox.
-- **ANSI Art Files:**
-  - Placeholder ANSI files (`WELCOME.ANS`, `GOODBYE.ANS`, `MISSING.ANS`, and `NOTYET.ANS`) in the `/art` directory.
+### General Functionality
+
+- **Daily Art Display**: Displays unique ANSI art files for each day of December (e.g., `1_DEC24.ANS` for December 1, 2024).
+- **Welcome Screen**: On launch, displays a **WELCOME.ANS** file with today's date centered on the screen.
+- **Navigation**:
+  - Use the **Right Arrow** to navigate forward through days.
+  - Use the **Left Arrow** to navigate backward.
+- **Quit Option**: Press **Q** or **Esc** to exit the program gracefully, displaying the **GOODBYE.ANS** screen.
+
+### Navigation Highlights
+
+- **"Come Back Tomorrow" Screen**:
+  - If navigating beyond the user's current day (but before December 25), the **COMEBACK.ANS** file is displayed with a centered message:
+    - `"Tomorrow's art: [date]"` for dates before December 25.
+    - `"See you next year!"` for December 25 and beyond.
+- **Welcome Screen Navigation**:
+  - Pressing the **Right Arrow** transitions to the user's first available day.
+  - The **Left Arrow** does nothing when on the Welcome screen.
+
+### Customization and Debugging
+
+- **Command-Line Arguments**:
+  - `--path`: Path to the `door32.sys` file (required unless `--local` is used).
+  - `--debug-disable-date`: Disables date validation (useful for debugging).
+  - `--debug-disable-art`: Skips art file validation.
+  - `--debug-date=[YYYY-MM-DD]`: Overrides the current date for testing.
+- **Centered Messages**:
+  - On the Welcome screen: `"Today's Art: [date]"` (centered on the screen).
+  - On the Comeback screen: `"Tomorrow's art: [date]"` or `"See you next year!"`.
+
+### Error Handling
+
+- **Missing Art Files**: Detects and lists missing art files in a readable format. Displays **MISSING.ANS** if available.
+- **Idle Timeout**: Exits the program if the user is idle for too long.
+- **Max Time Exceeded**: Exits the program if the session duration exceeds the allowed time.
+
+## File Requirements
+
+Ensure the following files are present in the appropriate directory (`art/2024` for the current year):
+
+- **WELCOME.ANS**: Welcome screen art.
+- **GOODBYE.ANS**: Exit screen art.
+- **COMEBACK.ANS**: "Come Back Tomorrow" screen art.
+- Daily art files (`1_DEC24.ANS` to `25_DEC24.ANS`).
 
 ## Usage
-### Build and Run
-1. **Build the Go Program:**
-   ```bash
-   go build -o advent
-   ```
 
-2. **Run the Program:**
-   - **BBS Mode:**
-     Provide the path to the `door32.sys` file:
-     ```bash
-     ./advent --path /path/to/dropfile/
-     ```
-   - **Local Mode:**
-     Run with the `--local` flag for UTF-8 encoding:
-     ```bash
-     ./advent --local
-     ```
+Run the program with the desired flags:
 
-### Directory Structure
-- All ANSI files should be placed in the `/art/<year>` directory, where `<year>` is the current year.
-  - Example: `art/2023/WELCOME.ANS`
-
-### Required ANSI Files
-- `WELCOME.ANS`: Welcome screen.
-- `GOODBYE.ANS`: Exit screen.
-- `MISSING.ANS`: Error screen displayed when one or more art files are missing.
-- `NOTYET.ANS`: Message displayed when the calendar is accessed before December.
-- Daily art files: `1_DEC23.ANS` to `25_DEC23.ANS`.
-
-## Notes
-- **ANSI Art Requirements:**
-  - Files must be 80x25, with the 80th column left empty. Users are advised to hide the status bar in their terminal to avoid display issues.
-- **Timeout:**
-  - The program automatically exits after 1 minute of inactivity.
-- **Encoding:**
-  - CP437 encoding is used in BBS mode; UTF-8 is used in local mode.
-- **DOS Version:**
-  - The DOS version (`madvent.exe`) uses a single `.DAT` file for storing calendar art.
-
-## Example Shell Script
-Here’s an example script to launch the door with Door32.sys:
 ```bash
-#!/bin/bash
-/path/to/advent --path /path/to/dropfile/
+./advent --path /path/to/dropfile --debug-disable-date --debug-date=2024-12-12
 ```
 
-## Error Handling
-1. **Before December 1:**
-   - If the program is run before December, it displays `NOTYET.ANS` and exits gracefully after the user presses any key.
-2. **Missing Files:**
-   - If any required ANSI file is missing (welcome, goodbye, or daily art files), the program displays `MISSING.ANS` and exits gracefully after the user presses any key.
+### Command-Line Options
 
-## To-Do
-- Allow scrolling for art files larger than 25 rows.
-- Add enhanced UTF-8 support for local mode.
+| Option                    | Description                                                                 |
+|---------------------------|-----------------------------------------------------------------------------|
+| `--path`                  | Path to the `door32.sys` file.                                             |
+| `--local`                 | Enables local UTF-8 display instead of CP437 encoding.                     |
+| `--debug-disable-date`    | Disables date validation for debugging.                                    |
+| `--debug-disable-art`     | Skips art file validation for debugging.                                   |
+| `--debug-date=YYYY-MM-DD` | Overrides the current date (useful for testing future days).               |
+
+## Dependencies
+
+- **Golang Modules**:
+  - `github.com/eiannone/keyboard`: For capturing user input.
+
+## Example Workflow
+
+1. **Launch**: Displays the Welcome screen with today's date centered.
+2. **Navigate**:
+   - Use the **Right Arrow** to proceed to the first available day or the next day.
+   - Use the **Left Arrow** to navigate backward.
+3. **Quit**: Press **Q** or **Esc** to exit and display the Goodbye screen.
+
+## Future Enhancements
+
+- Support for scrolling beyond 80x24
+- Browse previous years art
+- UTF-8 (local) support
