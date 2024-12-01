@@ -1,4 +1,4 @@
-# Advent ANSI Calendar Viewer
+# Mistigris Advent Calendar
 
 This is an interactive ANSI art viewer designed to display an advent calendar with unique art files for each day in December. It supports navigation, custom date overrides, and enhanced user feedback through centered text messages.
 
