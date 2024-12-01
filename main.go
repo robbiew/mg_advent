@@ -149,11 +149,11 @@ func main() {
 		log.Println("DEBUG: Displaying Welcome screen.")
 		displayAnsiFile(welcomeFilePath, u)
 
-		todayDate := displayDate.Format("January 2, 2006") // Format the date as "Month Day, Year"
+		todayDate := displayDate.Format("January 02, 2006") // Format the date as "Month Day, Year"
 		centeredText := todayDate
 		screenWidth := 82 // Assume a standard 80-character wide screen
 		x := (screenWidth - len(centeredText)) / 2
-		y := 22
+		y := 20
 
 		// Move the cursor to the specified X, Y position and print the text
 		fmt.Printf("\033[%d;%dH%s", y, x, centeredText) // ANSI escape sequence for cursor positioning
