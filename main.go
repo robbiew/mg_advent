@@ -40,27 +40,47 @@ var (
 	debugDateOverride string
 	modalH            int // in case height is odd
 	modalW            int // in case width is odd
+	localDisplay      bool
+	u                 User // Global User object
 )
 
 func init() {
 	timeOut = 5 * time.Minute
-	pathPtr := flag.String("path", "", "path to door32.sys file (optional if --local is set)")
+	pathPtr := flag.String("path", "", "path to door32.sys file (required unless --local is set)")
 	flag.BoolVar(&debugDisableDate, "debug-disable-date", false, "Disable validateDate check")
 	flag.BoolVar(&debugDisableArt, "debug-disable-art", false, "Disable validateArtFiles check")
 	flag.StringVar(&debugDateOverride, "debug-date", "", "Override date in YYYY-MM-DD format")
-	flag.Parse() // Ensure this is executed before any flag is used
+	flag.BoolVar(&localDisplay, "local", false, "Use local UTF-8 display instead of CP437")
+	flag.Parse()
 
-	if *pathPtr == "" {
-		fmt.Fprintln(os.Stderr, "missing required -path argument")
-		os.Exit(2)
+	if localDisplay {
+		log.Println("INFO: Running in local mode. No DropPath required.")
+		u = User{
+			Alias:     "SysOp",
+			TimeLeft:  120 * time.Minute,
+			Emulation: 1,
+			NodeNum:   1,
+			H:         25,
+			W:         80,
+			ModalH:    25,
+			ModalW:    80,
+		}
+	} else {
+		if *pathPtr == "" {
+			log.Fatal("Error: --path is required unless --local is set.")
+		}
+		DropPath = *pathPtr
+		log.Printf("INFO: Running in DropPath mode. Path set to %s.", DropPath)
 	}
-	DropPath = *pathPtr
-
 }
 
 func main() {
-	// Initialize user and art directory
-	u := Initialize(DropPath)
+	if localDisplay {
+		u = InitializeLocal()
+	} else {
+		// Ensure DropPath-based initialization only happens when not in local mode
+		u = Initialize(DropPath)
+	}
 	artDir := getCurrentYearArtDir()
 
 	// Setup callbacks for timeouts
@@ -81,29 +101,29 @@ func main() {
 	// Validate date unless disabled by debug flag
 	var displayDate time.Time
 	if debugDisableDate {
-		log.Println("DEBUG: Date validation skipped due to --debug-disable-date flag.")
+		logDebug("DEBUG: Date validation skipped due to --debug-disable-date flag.")
 		if debugDateOverride != "" {
 			displayDate = parseDebugDate(debugDateOverride)
-			log.Printf("DEBUG: Using debug date override: %s", displayDate.Format("2006-01-02"))
+			logDebug("DEBUG: Using debug date override: %s", displayDate.Format("2006-01-02"))
 		} else {
 			displayDate = time.Date(time.Now().Year(), time.December, 1, 0, 0, 0, 0, time.Local)
-			log.Printf("DEBUG: No debug date provided; defaulting to December 1: %s", displayDate.Format("2006-01-02"))
+			logDebug("DEBUG: No debug date provided; defaulting to December 1: %s", displayDate.Format("2006-01-02"))
 		}
 	} else {
-		log.Println("DEBUG: Running validateDate.")
+		logDebug("DEBUG: Running validateDate.")
 		validateDate(artDir, u)
 		displayDate = time.Now()
 	}
 
 	// Validate art files unless disabled by debug flag
 	if !debugDisableArt {
-		log.Println("DEBUG: Running validateArtFiles.")
+		logDebug("DEBUG: Running validateArtFiles.")
 		validateArtFiles(artDir, u)
 	}
 
 	// Check for ANSI emulation
 	if u.Emulation != 1 {
-		log.Println("DEBUG: ANSI emulation required. Exiting.")
+		logDebug("DEBUG: ANSI emulation required. Exiting.")
 		fmt.Println("Sorry, ANSI is required to use this...")
 		fmt.Print("\033[0m") // Reset text and background
 		CursorShow()         // Show the cursor if hidden
@@ -112,7 +132,7 @@ func main() {
 
 	// Open keyboard input
 	if err := keyboard.Open(); err != nil {
-		log.Printf("DEBUG: Keyboard open failed: %v", err)
+		logDebug("DEBUG: Keyboard open failed: %v", err)
 		os.Exit(1)
 	}
 	defer keyboard.Close()
@@ -146,7 +166,7 @@ func main() {
 	// Display the welcome screen
 	welcomeFilePath := filepath.Join(artDir, WelcomeFile)
 	if _, err := os.Stat(welcomeFilePath); err == nil {
-		log.Println("DEBUG: Displaying Welcome screen.")
+		logDebug("DEBUG: Displaying Welcome screen.")
 		displayAnsiFile(welcomeFilePath, u)
 
 		todayDate := displayDate.Format("January 02, 2006") // Format the date as "Month Day, Year"
@@ -158,14 +178,14 @@ func main() {
 		// Move the cursor to the specified X, Y position and print the text
 		fmt.Printf("\033[%d;%dH%s", y, x, centeredText) // ANSI escape sequence for cursor positioning
 	} else {
-		log.Printf("DEBUG: Welcome screen file not found: %s", welcomeFilePath)
+		logDebug("DEBUG: Welcome screen file not found: %s", welcomeFilePath)
 	}
 
 	// Start navigation loop
 	for {
 		char, key, err := keyboard.GetKey()
 		if err != nil {
-			log.Printf("DEBUG: Keyboard error: %v", err)
+			logDebug("DEBUG: Keyboard error: %v", err)
 			panic(err)
 		}
 
@@ -174,7 +194,7 @@ func main() {
 
 		// Handle Quit (Q or ESC)
 		if string(char) == "q" || key == keyboard.KeyEsc {
-			log.Println("DEBUG: Exiting on user command.")
+			logDebug("DEBUG: Exiting on user command.")
 			displayAnsiFile(filepath.Join(artDir, ExitFile), u)
 			pauseForKey()
 			fmt.Print(Reset) // Reset text and background
@@ -191,7 +211,7 @@ func main() {
 			currentDayDisplayed = true
 			welcomeDisplayed = false // Exit the welcome menu
 			comebackDisplayed = false
-			log.Println("DEBUG: Switching to 2023 Calendar.")
+			logDebug("DEBUG: Switching to 2023 Calendar.")
 			displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC23.ANS", day)), u)
 		}
 
@@ -203,20 +223,20 @@ func main() {
 					// Transition from Welcome screen to the user's first day art
 					welcomeDisplayed = false
 					currentDayDisplayed = true
-					log.Printf("DEBUG: Transitioning from Welcome screen to first day (%d).", day)
+					logDebug("DEBUG: Transitioning from Welcome screen to first day (%d).", day)
 					displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(displayDate.Year())[2:])), u)
 				} else if currentDayDisplayed && day < maxDay {
 					day++
-					log.Printf("DEBUG: Navigating to day %d.", day)
+					logDebug("DEBUG: Navigating to day %d.", day)
 					displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(displayDate.Year())[2:])), u)
 				} else if currentDayDisplayed && day == maxDay && maxDay != 25 {
 					currentDayDisplayed = false
 					comebackDisplayed = true
-					log.Printf("DEBUG: Showing COMEBACK screen for max day (%d).", maxDay)
+					logDebug("DEBUG: Showing COMEBACK screen for max day (%d).", maxDay)
 					// Display the COMEBACK screen
 					comebackFilePath := filepath.Join(artDir, ComeBack)
 					if _, err := os.Stat(comebackFilePath); err == nil {
-						log.Println("DEBUG: Displaying COMEBACK screen.")
+						logDebug("DEBUG: Displaying COMEBACK screen.")
 						displayAnsiFile(comebackFilePath, u)
 
 						// Add centered text
@@ -237,31 +257,31 @@ func main() {
 						// Move the cursor to the specified X, Y position and print the text
 						fmt.Printf("\033[%d;%dH%s", y, x, centeredText) // ANSI escape sequence for cursor positioning
 					} else {
-						log.Printf("DEBUG: COMEBACK screen file not found: %s", comebackFilePath)
+						logDebug("DEBUG: COMEBACK screen file not found: %s", comebackFilePath)
 					}
 
 				} else if comebackDisplayed {
-					log.Printf("DEBUG: Right arrow pressed on COMEBACK screen; no action taken.")
+					logDebug("DEBUG: Right arrow pressed on COMEBACK screen; no action taken.")
 				}
 			}
 
 			// Handle Left Arrow Navigation
 			if key == keyboard.KeyArrowLeft {
 				if welcomeDisplayed {
-					log.Printf("DEBUG: Left arrow pressed on Welcome screen; no action taken.")
+					logDebug("DEBUG: Left arrow pressed on Welcome screen; no action taken.")
 				} else if comebackDisplayed {
 					comebackDisplayed = false
 					currentDayDisplayed = true
-					log.Printf("DEBUG: Navigating back to current day (%d) from COMEBACK screen.", maxDay)
+					logDebug("DEBUG: Navigating back to current day (%d) from COMEBACK screen.", maxDay)
 					displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", maxDay, strconv.Itoa(displayDate.Year())[2:])), u)
 				} else if currentDayDisplayed && day > 1 {
 					day--
-					log.Printf("DEBUG: Navigating to day %d.", day)
+					logDebug("DEBUG: Navigating to day %d.", day)
 					displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(displayDate.Year())[2:])), u)
 				} else if currentDayDisplayed && day == 1 {
 					currentDayDisplayed = false
 					welcomeDisplayed = true
-					log.Printf("DEBUG: Navigating to Welcome screen from day %d.", day)
+					logDebug("DEBUG: Navigating to Welcome screen from day %d.", day)
 					displayAnsiFile(filepath.Join(artDir, WelcomeFile), u)
 					todayDate := displayDate.Format("January 02, 2006") // Format the date as "Month Day, Year"
 					centeredText := todayDate
@@ -304,7 +324,7 @@ func main() {
 					day = maxDay
 				}
 
-				log.Println("DEBUG: User returned to 2024 WELCOME screen from 2023 COMEBACK menu.")
+				logDebug("DEBUG: User returned to 2024 WELCOME screen from 2023 COMEBACK menu.")
 				displayAnsiFile(filepath.Join(artDir, WelcomeFile), u)
 				todayDate := displayDate.Format("January 02, 2006") // Format the date as "Month Day, Year"
 				centeredText := todayDate
@@ -319,23 +339,23 @@ func main() {
 			if key == keyboard.KeyArrowRight {
 				if comebackDisplayed {
 					// Right arrow is disabled on the COMEBACK screen
-					log.Println("DEBUG: Right arrow key pressed on COMEBACK screen for 2023; no action taken.")
+					logDebug("DEBUG: Right arrow key pressed on COMEBACK screen for 2023; no action taken.")
 					continue
 				} else if currentDayDisplayed && day < maxDay {
 					day++
-					log.Printf("DEBUG: Navigating to day %d in 2023 Calendar.", day)
+					logDebug("DEBUG: Navigating to day %d in 2023 Calendar.", day)
 					displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC23.ANS", day)), u)
 				} else if currentDayDisplayed && day == maxDay {
 					currentDayDisplayed = false
 					comebackDisplayed = true
-					log.Printf("DEBUG: Showing COMEBACK screen for 2023 Calendar.")
+					logDebug("DEBUG: Showing COMEBACK screen for 2023 Calendar.")
 					// Display the COMEBACK screen for 2023
 					comebackFilePath := filepath.Join(artDir, ComeBack)
 					if _, err := os.Stat(comebackFilePath); err == nil {
 						log.Println("DEBUG: Displaying COMEBACK screen for 2023.")
 						displayAnsiFile(comebackFilePath, u)
 					} else {
-						log.Printf("DEBUG: COMEBACK screen file not found for 2023: %s", comebackFilePath)
+						logDebug("DEBUG: COMEBACK screen file not found for 2023: %s", comebackFilePath)
 					}
 				}
 			} else if key == keyboard.KeyArrowLeft {
@@ -343,11 +363,11 @@ func main() {
 					// Transition back to the last day from COMEBACK screen
 					comebackDisplayed = false
 					currentDayDisplayed = true
-					log.Printf("DEBUG: Navigating back to day %d from COMEBACK screen in 2023 Calendar.", maxDay)
+					logDebug("DEBUG: Navigating back to day %d from COMEBACK screen in 2023 Calendar.", maxDay)
 					displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC23.ANS", maxDay)), u)
 				} else if day > 1 {
 					day--
-					log.Printf("DEBUG: Navigating to day %d in 2023 Calendar.", day)
+					logDebug("DEBUG: Navigating to day %d in 2023 Calendar.", day)
 					displayAnsiFile(filepath.Join(artDir, fmt.Sprintf("%d_DEC23.ANS", day)), u)
 				} else if day == 1 {
 					// Transition back to the 2024 WELCOME screen
@@ -375,7 +395,7 @@ func main() {
 						day = maxDay
 					}
 
-					log.Printf("DEBUG: Navigating back to 2024 WELCOME screen. Today's day: %d, Max day: %d.", day, maxDay)
+					logDebug("DEBUG: Navigating back to 2024 WELCOME screen. Today's day: %d, Max day: %d.", day, maxDay)
 					displayAnsiFile(filepath.Join(artDir, WelcomeFile), u)
 
 				}

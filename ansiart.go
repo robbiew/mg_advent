@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"golang.org/x/text/encoding/charmap"
 )
 
 const (
@@ -106,17 +108,50 @@ func displayAnsiFile(filePath string, user User) {
 		return
 	}
 
-	// Print the ANSI content, respecting terminal height and width
-	printAnsi(content, 0, user.H)
+	// Call the appropriate rendering function based on the display mode
+	if localDisplay {
+		printUtf8(content, 0, user.H) // Pass height for rendering
+	} else {
+		printAnsi(content, 0, user.H) // Use standard ANSI printing logic
+	}
 }
 
-// Print ANSI art with a delay between lines and terminal size constraints
+// Print UTF-8 art
+func printUtf8(artContent string, delay int, terminalHeight int) {
+	noSauce := trimStringFromSauce(artContent) // Strip off the SAUCE metadata
+	lines := strings.Split(noSauce, "\r\n")
+
+	// Render the content line by line, respecting the terminal height
+	for i := 0; i < terminalHeight && i < len(lines); i++ {
+		line := lines[i]
+
+		// Convert line from CP437 to UTF-8
+		utf8Line, err := charmap.CodePage437.NewDecoder().String(line)
+		if err != nil {
+			log.Printf("Error converting to UTF-8: %v", err)
+			utf8Line = line // Fallback to original line
+		}
+
+		// Print the line
+		if i == terminalHeight-1 {
+			// Avoid newline for the last line within terminal height
+			fmt.Print(utf8Line)
+		} else {
+			fmt.Println(utf8Line)
+		}
+
+		// Optional delay between lines
+		time.Sleep(time.Duration(delay) * time.Millisecond)
+	}
+}
+
+// Print ANSI art
 func printAnsi(artContent string, delay int, terminalHeight int) {
 	noSauce := trimStringFromSauce(artContent) // Strip off the SAUCE metadata
 	lines := strings.Split(noSauce, "\r\n")
 
-	// Limit the number of lines printed to the terminal height
-	for i := 0; i < len(lines) && i < terminalHeight; i++ {
+	// Render the content line by line, respecting the terminal height
+	for i := 0; i < terminalHeight && i < len(lines); i++ {
 		line := lines[i]
 
 		// Print the line

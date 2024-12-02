@@ -138,6 +138,13 @@ func getTermSize() (int, int) {
 
 }
 
+func InitializeLocal() User {
+	if localDisplay {
+		return u // Use pre-set user for local mode
+	}
+	return Initialize(DropPath) // Default path-based initialization
+}
+
 // Initialize fetches terminal dimensions and creates a User object
 func Initialize(path string) User {
 	alias, timeLeft, emulation, nodeNum := DropFileData(path)
@@ -168,6 +175,12 @@ func Initialize(path string) User {
 		ModalW:    modalW,
 	}
 	return u
+}
+
+func logDebug(format string, v ...interface{}) {
+	if !localDisplay { // Suppress logs in localDisplay mode
+		log.Printf(format, v...)
+	}
 }
 
 // Show the cursor.
@@ -283,7 +296,7 @@ func pauseForKey() {
 		_, _, _ = keyboard.GetKey() // Wait for a single key press
 		keyboard.Close()
 	} else {
-		log.Printf("DEBUG: Keyboard open failed for pause: %v", err)
+		logDebug("DEBUG: Keyboard open failed for pause: %v", err)
 	}
 	fmt.Print("\033[0m") // Reset text and background color
 }
