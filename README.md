@@ -12,6 +12,7 @@ This is an interactive ANSI art viewer designed to display an advent calendar wi
   - Use the **Right Arrow** to navigate forward through days.
   - Use the **Left Arrow** to navigate backward.
 - **Quit Option**: Press **Q** or **Esc** to exit the program gracefully, displaying the **GOODBYE.ANS** screen.
+- **BBS-First Output**: Default rendering streams raw CP437 bytes for remote callers; use `--local` to view a Unicode-converted version locally.
 
 ### Navigation Highlights
 
@@ -62,7 +63,7 @@ Run the program with the desired flags:
 | Option                    | Description                                                                 |
 |---------------------------|-----------------------------------------------------------------------------|
 | `--path`                  | Path to the `door32.sys` file.                                             |
-| `--local`                 | Enables local UTF-8 display instead of CP437 encoding.                     |
+| `--local`                 | Converts CP437 art to UTF-8 for local terminals (default output is raw CP437). |
 | `--debug-disable-date`    | Disables date validation for debugging.                                    |
 | `--debug-disable-art`     | Skips art file validation for debugging.                                   |
 | `--debug-date=YYYY-MM-DD` | Overrides the current date (useful for testing future days).               |

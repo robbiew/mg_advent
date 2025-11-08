@@ -1,0 +1,34 @@
+app:
+  name: "Mistigris Advent Calendar"
+  version: "2.0.0"
+  timeout_idle: "5m"
+  timeout_max: "120m"
+
+display:
+  mode: "cp437"  # cp437 or utf8
+  theme: "classic"
+  scrolling:
+    enabled: true
+    indicators: true
+    keyboard_shortcuts: true
+  columns:
+    handle_80_column_issue: true
+    auto_detect_width: true
+  performance:
+    cache_enabled: true
+    cache_size_mb: 50
+    preload_lines: 100
+
+bbs:
+  dropfile_path: ""
+  emulation_required: 1
+
+art:
+  base_dir: "art"
+  cache_size: "100MB"
+  preload_days: 7
+
+logging:
+  level: "info"
+  format: "text"
+  output: "stderr"

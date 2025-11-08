@@ -25,3 +25,6 @@ go.work
 **/advent
 **/.DS_Store
 **/door32.sys
+
+# Local test environment (user-specific)
+~/advent/
