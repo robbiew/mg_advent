@@ -23,8 +23,27 @@ go.work
 
 # Project specific - ignore compiled binary
 /advent
+
+# Build artifacts and distribution files
+/dist/
+*.sha256
+
+# Development and testing files
 **/.DS_Store
 **/door32.sys
+*.log
+advent_door.log
+coverage.out
+coverage.html
 
-# Local test environment (user-specific)
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Local test environments (user-specific)
 ~/advent/
+/test/
+/testing/

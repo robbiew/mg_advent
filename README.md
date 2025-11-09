@@ -1,103 +1,62 @@
 # Mistigris Advent Calendar
 
-This is an interactive ANSI art viewer designed to display an advent calendar with unique art files for each day in December. It supports navigation, year selection, custom date overrides, and enhanced user feedback through centered text messages.
+An interactive BBS door program that displays beautiful ANSI art advent calendars. Compatible with all modern BBS systems that support Door32 dropfiles.
 
 ## Features
 
-### General Functionality
+- **Daily Art Display**: Unique ANSI art for each day in December
+- **Multi-Year Support**: Browse advent calendars from 2023, 2024, and 2025
+- **Universal BBS Compatibility**: Works with any BBS system using door32.sys
+- **Interactive Navigation**: Arrow keys to browse days, year selection
+- **Session Management**: Configurable timeouts and graceful disconnection handling
+- **Cross-Platform**: Runs on Windows and Linux BBS systems
 
-- **Daily Art Display**: Displays unique ANSI art files for each day of December.
-- **Multi-Year Support**: Browse advent calendars from 2023, 2024, and 2025.
-- **Welcome Screen**: On launch, displays a **WELCOME.ANS** file with today's date centered on the screen.
-- **Navigation**:
-  - Use the **Right Arrow** to navigate forward through days.
-  - Use the **Left Arrow** to navigate backward.
-  - Press **1** to view 2023 art, **2** for 2024 art (from welcome screen).
-  - Arrow keys navigate the current/default year (2025).
-- **Quit/Back Navigation**: 
-  - Press **Q** or **Esc** while viewing art to return to the Welcome screen.
-  - Press **Q** or **Esc** on the Welcome screen to exit and display **GOODBYE.ANS**.
-- **BBS-First Output**: Default rendering streams raw CP437 bytes for remote callers; use `--local` to view a Unicode-converted version locally.
+## User Experience
 
-### Navigation Highlights
+- **Navigation**: Use arrow keys to browse days, press Q to quit
+- **Smart Restrictions**: Only shows art up to current date, future dates show "come back tomorrow"
+- **Year Selection**: Press 1, 2, or 3 to switch between available years
+- **Error Handling**: Graceful fallbacks for missing art files
+- **Session Timeouts**: Configurable idle and maximum session limits
 
-- **"Come Back Tomorrow" Screen**:
-  - If navigating beyond the user's current day (but before December 25), the **COMEBACK.ANS** file is displayed with a centered message:
-    - `"Tomorrow's art: [date]"` for dates before December 25.
-    - `"See you next year!"` for December 25 and beyond.
-- **Welcome Screen Navigation**:
-  - Pressing the **Right Arrow** transitions to the user's first available day.
-  - The **Left Arrow** does nothing when on the Welcome screen.
+## Installation
 
-### Customization and Debugging
+See [INSTALLATION.md](INSTALLATION.md) for complete setup instructions for Windows and Linux BBS systems.
 
-- **Command-Line Arguments**:
-  - `--path`: Path to the `door32.sys` file (required unless `--local` is used).
-  - `--debug-disable-date`: Disables date validation (useful for debugging).
-  - `--debug-disable-art`: Skips art file validation.
-  - `--debug-date=[YYYY-MM-DD]`: Overrides the current date for testing.
-- **Centered Messages**:
-  - On the Welcome screen: `"Today's Art: [date]"` (centered on the screen).
-  - On the Comeback screen: `"Tomorrow's art: [date]"` or `"See you next year!"`.
+## Building from Source
 
-### Error Handling
+### Prerequisites
+- Go 1.24 or later
+- Git
 
-- **Missing Art Files**: Automatically displays **MISSING.ANS** (from `art/common/`) if a day's art file is not found.
-  - The missing filename is displayed in the bottom-right corner of the MISSING screen for reference.
-- **Idle Timeout**: Exits the program if the user is idle for too long.
-- **Max Time Exceeded**: Exits the program if the session duration exceeds the allowed time.
-
-## File Structure
-
-The application uses the following directory structure:
-
-```
-art/
-├── common/              # Year-independent screen files
-│   ├── WELCOME.ANS      # Welcome screen
-│   ├── GOODBYE.ANS      # Exit screen
-│   ├── COMEBACK.ANS     # "Come Back Tomorrow" screen
-│   ├── MISSING.ANS      # Displayed when day art is missing
-│   └── NOTYET.ANS       # Future date warning
-├── 2023/                # 2023 advent calendar
-│   ├── 1_DEC23.ANS - 25_DEC23.ANS
-│   ├── INFOFILE.ANS     # Year-specific info
-│   └── MEMBERS.ANS      # Year-specific credits
-├── 2024/                # 2024 advent calendar
-│   ├── 1_DEC24.ANS - 25_DEC24.ANS
-│   ├── INFOFILE.ANS
-│   └── MEMBERS.ANS
-└── 2025/                # 2025 advent calendar
-    ├── 1_DEC25.ANS - 25_DEC25.ANS
-    ├── INFOFILE.ANS
-    └── MEMBERS.ANS
-```
-
-### Required Files
-
-- **Common directory** (`art/common/`):
-  - `WELCOME.ANS`, `GOODBYE.ANS`, `COMEBACK.ANS`, `MISSING.ANS`, `NOTYET.ANS`
-- **Year directories** (e.g., `art/2025/`):
-  - Daily art files (`1_DEC25.ANS` to `25_DEC25.ANS`)
-  - Year-specific info files: `INFOFILE.ANS`, `MEMBERS.ANS`
-
-## Usage
-
-Run the program with the desired flags:
-
+### Build Steps
 ```bash
-./advent --path /path/to/dropfile --debug-disable-date --debug-date=2024-12-12
+# Clone repository
+git clone https://github.com/robbiew/mg_advent.git
+cd mg_advent
+
+# Linux/Mac build
+./build.sh
+
+# Windows build  
+build.bat
 ```
 
-### Command-Line Options
+This creates binaries in the `dist/` directory for multiple platforms.
 
-| Option                    | Description                                                                 |
-|---------------------------|-----------------------------------------------------------------------------|
-| `--path`                  | Path to the `door32.sys` file.                                             |
-| `--local`                 | Converts CP437 art to UTF-8 for local terminals (default output is raw CP437). |
-| `--debug-disable-date`    | Disables date validation for debugging.                                    |
-| `--debug-disable-art`     | Skips art file validation for debugging.                                   |
-| `--debug-date=YYYY-MM-DD` | Overrides the current date (useful for testing future days).               |
+### Development & Testing
+```bash
+# Local testing (no BBS required)
+go run cmd/advent/main.go --local --debug-disable-date --debug-date=2024-12-15
+```
+
+## Contributing
+
+This project welcomes contributions! Please see the development documentation in the `memory-bank/` directory for architecture details and development guidelines.
+
+## License
+
+This project is released under the terms specified in the LICENSE file.
 
 ## Dependencies
 
