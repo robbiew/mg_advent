@@ -31,27 +31,58 @@ type BBSConnection struct {
 }
 
 // NewBBSConnection creates a new BBS connection based on platform and dropfile
-func NewBBSConnection(dropfilePath string) (*BBSConnection, error) {
+func NewBBSConnection(dropfilePath, socketHost string) (*BBSConnection, error) {
 	conn := &BBSConnection{}
 
 	// Detect connection type based on platform
 	if runtime.GOOS == "windows" {
-		conn.connType = ConnectionSocket
-		// Parse dropfile for socket information
-		socketInfo, err := parseWindowsDropfile(dropfilePath)
+		// Parse dropfile to determine connection type
+		door32Info, err := ParseDoor32(dropfilePath, socketHost)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse Windows dropfile: %w", err)
+			return nil, fmt.Errorf("failed to parse door32.sys: %w", err)
 		}
 
-		// Connect to socket
-		socketConn, err := net.DialTimeout("tcp", socketInfo.Address, 10*time.Second)
-		if err != nil {
-			return nil, fmt.Errorf("failed to connect to BBS socket: %w", err)
-		}
+		if door32Info.LineType == 2 {
+			// Socket/telnet connection - use handle inheritance (proper implementation)
+			conn.connType = ConnectionSocket
 
-		conn.socketConn = socketConn
-		conn.isConnected = true
-		logrus.WithField("address", socketInfo.Address).Info("Connected to Windows BBS socket")
+			logrus.WithFields(logrus.Fields{
+				"socketHandle": door32Info.SocketHandle,
+				"address":      door32Info.Socket.Address,
+			}).Info("Attempting to inherit socket handle from parent BBS process")
+
+			// Try to create connection from inherited socket handle (proper Door32 method)
+			socketConn, err := CreateSocketFromHandle(door32Info.SocketHandle)
+			if err != nil {
+				logrus.WithError(err).Warn("Socket handle inheritance failed, trying TCP connection fallback")
+
+				// Fallback: attempt new TCP connection
+				if door32Info.Socket != nil {
+					logrus.WithField("address", door32Info.Socket.Address).Info("Attempting TCP connection fallback to BBS")
+					socketConn, err = net.DialTimeout("tcp", door32Info.Socket.Address, 10*time.Second)
+					if err != nil {
+						logrus.WithError(err).Error("Both socket handle inheritance and TCP connection failed")
+						return nil, fmt.Errorf("failed to connect to BBS - handle inheritance failed: %v, TCP connection to %s also failed: %w",
+							err, door32Info.Socket.Address, err)
+					}
+					logrus.WithField("address", door32Info.Socket.Address).Info("Successfully connected to BBS via TCP fallback")
+				} else {
+					return nil, fmt.Errorf("socket handle inheritance failed and no socket information available for TCP fallback: %v", err)
+				}
+			} else {
+				logrus.WithField("handle", door32Info.SocketHandle).Info("Successfully inherited socket handle from parent BBS process")
+			}
+
+			conn.socketConn = socketConn
+			conn.isConnected = true
+		} else {
+			// Local or serial mode
+			conn.connType = ConnectionStdio
+			conn.stdinReader = bufio.NewReader(os.Stdin)
+			conn.stdoutWriter = bufio.NewWriter(os.Stdout)
+			conn.isConnected = true
+			logrus.Info("Using STDIN/STDOUT for local/serial connection")
+		}
 
 	} else {
 		// Unix/Linux: Use STDIN/STDOUT
@@ -65,6 +96,115 @@ func NewBBSConnection(dropfilePath string) (*BBSConnection, error) {
 	return conn, nil
 }
 
+// ParseDoor32 parses a door32.sys file and returns user information
+// Follows the official Door32 specification (11 lines)
+func ParseDoor32(dropfilePath, socketHost string) (*Door32Info, error) {
+	file, err := os.Open(dropfilePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	lines := []string{}
+
+	// Read all lines
+	for scanner.Scan() {
+		lines = append(lines, strings.TrimSpace(scanner.Text()))
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	logrus.WithField("lines", len(lines)).Info("Parsing door32.sys file")
+	for i, line := range lines {
+		logrus.WithFields(logrus.Fields{
+			"line":    i + 1,
+			"content": line,
+		}).Debug("door32.sys line")
+	}
+
+	if len(lines) < 11 {
+		return nil, fmt.Errorf("door32.sys file is incomplete, expected 11 lines per spec, got %d", len(lines))
+	}
+
+	info := &Door32Info{}
+
+	// Parse according to official Door32 specification:
+	// Line 1 : Comm type (0=local, 1=serial, 2=telnet)
+	if info.LineType, err = strconv.Atoi(lines[0]); err != nil {
+		return nil, fmt.Errorf("invalid comm type (line 1): %s", lines[0])
+	}
+
+	// Line 2 : Comm or socket handle
+	if info.SocketHandle, err = strconv.Atoi(lines[1]); err != nil {
+		return nil, fmt.Errorf("invalid socket handle (line 2): %s", lines[1])
+	}
+
+	// Line 3 : Baud rate (we don't use this for socket connections)
+	// Line 4 : BBSID (software name and version)
+	info.BBSName = lines[3]
+
+	// Line 5 : User record position (1-based) - we don't use this
+	// Line 6 : User's real name
+	realName := lines[5]
+	nameParts := strings.Fields(realName)
+	if len(nameParts) >= 2 {
+		info.FirstName = nameParts[0]
+		info.LastName = strings.Join(nameParts[1:], " ")
+	} else {
+		info.FirstName = realName
+		info.LastName = ""
+	}
+
+	// Line 7 : User's handle/alias
+	info.Alias = lines[6]
+
+	// Line 8 : User's security level
+	if info.SecurityLevel, err = strconv.Atoi(lines[7]); err != nil {
+		return nil, fmt.Errorf("invalid security level (line 8): %s", lines[7])
+	}
+
+	// Line 9 : User's time left (in minutes)
+	if info.TimeLeft, err = strconv.Atoi(lines[8]); err != nil {
+		return nil, fmt.Errorf("invalid time left (line 9): %s", lines[8])
+	}
+
+	// Line 10: Emulation (0=Ascii, 1=Ansi, 2=Avatar, 3=RIP, 4=Max Graphics)
+	if info.Emulation, err = strconv.Atoi(lines[9]); err != nil {
+		return nil, fmt.Errorf("invalid emulation (line 10): %s", lines[9])
+	}
+
+	// Line 11: Current node number
+	if info.NodeNumber, err = strconv.Atoi(lines[10]); err != nil {
+		return nil, fmt.Errorf("invalid node number (line 11): %s", lines[10])
+	}
+
+	// Parse socket information if it's a telnet connection
+	if info.LineType == 2 {
+		socketInfo, err := parseWindowsDropfile(dropfilePath, socketHost)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse socket info: %w", err)
+		}
+		info.Socket = socketInfo
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"commType":     info.LineType,
+		"socketHandle": info.SocketHandle,
+		"bbsName":      info.BBSName,
+		"realName":     info.FirstName + " " + info.LastName,
+		"alias":        info.Alias,
+		"security":     info.SecurityLevel,
+		"timeLeft":     info.TimeLeft,
+		"emulation":    info.Emulation,
+		"node":         info.NodeNumber,
+	}).Info("Parsed door32.sys according to official specification")
+
+	return info, nil
+}
+
 // SocketInfo holds Windows socket connection information
 type SocketInfo struct {
 	Host    string
@@ -72,8 +212,23 @@ type SocketInfo struct {
 	Address string
 }
 
-// parseWindowsDropfile parses Windows-style dropfile for socket information
-func parseWindowsDropfile(dropfilePath string) (*SocketInfo, error) {
+// Door32Info holds parsed information from door32.sys
+type Door32Info struct {
+	LineType      int
+	BBSName       string
+	FirstName     string
+	LastName      string
+	Alias         string
+	SecurityLevel int
+	TimeLeft      int
+	Emulation     int
+	NodeNumber    int
+	SocketHandle  int
+	Socket        *SocketInfo
+}
+
+// parseWindowsDropfile parses door32.sys dropfile for socket information
+func parseWindowsDropfile(dropfilePath, socketHost string) (*SocketInfo, error) {
 	file, err := os.Open(dropfilePath)
 	if err != nil {
 		return nil, err
@@ -82,34 +237,70 @@ func parseWindowsDropfile(dropfilePath string) (*SocketInfo, error) {
 
 	scanner := bufio.NewScanner(file)
 	info := &SocketInfo{}
+	lines := []string{}
 
+	// Read all lines first
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "SocketHost=") {
-			info.Host = strings.TrimPrefix(line, "SocketHost=")
-		} else if strings.HasPrefix(line, "SocketPort=") {
-			portStr := strings.TrimPrefix(line, "SocketPort=")
-			port, err := strconv.Atoi(portStr)
-			if err != nil {
-				return nil, fmt.Errorf("invalid socket port: %s", portStr)
-			}
-			info.Port = port
-		}
+		lines = append(lines, strings.TrimSpace(scanner.Text()))
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
 
-	if info.Host == "" || info.Port == 0 {
-		return nil, fmt.Errorf("socket information not found in dropfile")
+	if len(lines) < 2 {
+		return nil, fmt.Errorf("door32.sys file is too short for socket parsing")
+	}
+
+	// Parse line type
+	lineType, err := strconv.Atoi(lines[0])
+	if err != nil {
+		return nil, fmt.Errorf("invalid line type in door32.sys: %s", lines[0])
+	}
+
+	if lineType != 2 {
+		return nil, fmt.Errorf("unsupported door32.sys line type: %d (expected 2 for socket)", lineType)
+	}
+
+	// Parse socket handle from line 2 according to Door32 specification
+	socketHandle, err := strconv.Atoi(lines[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid socket handle (line 2): %s", lines[1])
+	}
+
+	// Use configured socket host
+	info.Host = socketHost
+	info.Port = socketHandle
+
+	// Look for custom socket info at the end of the file (our batch file adds this)
+	for i := 10; i < len(lines); i++ {
+		line := lines[i]
+		if strings.HasPrefix(line, "SocketHost=") {
+			info.Host = strings.TrimPrefix(line, "SocketHost=")
+		} else if strings.HasPrefix(line, "SocketPort=") {
+			portStr := strings.TrimPrefix(line, "SocketPort=")
+			port, err := strconv.Atoi(portStr)
+			if err != nil {
+				logrus.WithError(err).Warn("Invalid custom socket port, using handle as port")
+			} else {
+				info.Port = port
+			}
+		}
+	}
+
+	if info.Port == 0 {
+		return nil, fmt.Errorf("no valid socket port found in door32.sys")
 	}
 
 	info.Address = fmt.Sprintf("%s:%d", info.Host, info.Port)
-	return info, nil
-}
+	logrus.WithFields(logrus.Fields{
+		"host":    info.Host,
+		"port":    info.Port,
+		"address": info.Address,
+	}).Info("Parsed door32.sys socket information")
 
-// Read reads data from the BBS connection
+	return info, nil
+} // Read reads data from the BBS connection
 func (bc *BBSConnection) Read(p []byte) (n int, err error) {
 	if !bc.isConnected {
 		return 0, fmt.Errorf("not connected")

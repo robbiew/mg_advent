@@ -2,6 +2,7 @@ package display
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -11,13 +12,81 @@ import (
 	"golang.org/x/text/encoding/charmap"
 )
 
+// TeeWriter writes to multiple writers simultaneously
+type TeeWriter struct {
+	writers []io.Writer
+}
+
+// NewTeeWriter creates a new TeeWriter
+func NewTeeWriter(writers ...io.Writer) *TeeWriter {
+	return &TeeWriter{writers: writers}
+}
+
+// Write implements io.Writer interface
+func (tw *TeeWriter) Write(p []byte) (n int, err error) {
+	for _, w := range tw.writers {
+		if n, err = w.Write(p); err != nil {
+			return
+		}
+	}
+	return len(p), nil
+}
+
+// DualModeWriter handles different encodings for console vs BBS output
+type DualModeWriter struct {
+	consoleWriter io.Writer // Sysop console (needs CP437->UTF8 conversion)
+	bbsWriter     io.Writer // BBS connection (raw CP437)
+}
+
+// NewDualModeWriter creates a writer for dual output with proper encoding
+func NewDualModeWriter(consoleWriter, bbsWriter io.Writer) *DualModeWriter {
+	return &DualModeWriter{
+		consoleWriter: consoleWriter,
+		bbsWriter:     bbsWriter,
+	}
+}
+
+// Write implements io.Writer interface with encoding conversion
+func (dmw *DualModeWriter) Write(p []byte) (n int, err error) {
+	// Send raw CP437 to BBS connection (user terminal)
+	if dmw.bbsWriter != nil {
+		if _, err = dmw.bbsWriter.Write(p); err != nil {
+			return
+		}
+	}
+
+	// Convert CP437 to UTF-8 for sysop console
+	if dmw.consoleWriter != nil {
+		// Convert CP437 bytes to UTF-8 for proper display on Windows console
+		converted := convertCP437ToUTF8(p)
+		if _, err = dmw.consoleWriter.Write(converted); err != nil {
+			return
+		}
+	}
+
+	return len(p), nil
+}
+
+// convertCP437ToUTF8 converts CP437 encoded bytes to UTF-8
+func convertCP437ToUTF8(data []byte) []byte {
+	// Use the same charmap.CodePage437 decoder as in processCP437
+	decoder := charmap.CodePage437.NewDecoder()
+	utf8Data, err := decoder.Bytes(data)
+	if err != nil {
+		// If conversion fails, return original data
+		return data
+	}
+	return utf8Data
+}
+
 // DisplayEngine implements the Displayer interface
 type DisplayEngine struct {
 	config         DisplayConfig
 	themeManager   *ThemeManager
 	scrollState    ScrollState
 	cache          map[string][]string
-	currentContent []string // Store current content for scrolling re-renders
+	currentContent []string  // Store current content for scrolling re-renders
+	output         io.Writer // Output destination (console, BBS, or both)
 }
 
 // NewDisplayEngine creates a new display engine
@@ -31,6 +100,20 @@ func NewDisplayEngine(config DisplayConfig) *DisplayEngine {
 			TotalLines:   0,
 			VisibleLines: config.Height,
 		},
+		output: os.Stdout, // Default to stdout only
+	}
+}
+
+// SetBBSConnection configures dual output to both console and BBS connection
+// Following OpenDoors pattern: ODComSendBuffer() + ODScrnDisplayString()
+// Console gets CP437->UTF8 conversion, BBS gets raw CP437
+func (de *DisplayEngine) SetBBSConnection(bbsConn io.Writer) {
+	if bbsConn != nil {
+		// Create DualModeWriter: console (CP437->UTF8) + BBS (raw CP437)
+		de.output = NewDualModeWriter(os.Stdout, bbsConn)
+	} else {
+		// Fall back to console only
+		de.output = os.Stdout
 	}
 }
 
@@ -41,20 +124,20 @@ func (de *DisplayEngine) Display(filePath string, user User) error {
 
 // DisplayWithOverlay displays the content of an ANSI file with optional overlay text
 func (de *DisplayEngine) DisplayWithOverlay(filePath string, user User, overlayText string) error {
-	fmt.Print(Reset) // Reset text and background colors
+	de.output.Write([]byte(Reset)) // Reset text and background colors
 	de.ClearScreen()
 
 	// Load and process content
 	content, err := de.loadAndProcess(filePath)
 	if err != nil {
 		log.Printf("ERROR: Failed to load file %s: %v", filePath, err)
-		fmt.Println("Error: Unable to load art. Please contact the Sysop.")
+		de.output.Write([]byte("Error: Unable to load art. Please contact the Sysop.\r\n"))
 		return err
 	}
 
 	if len(content) == 0 {
 		log.Printf("ERROR: File %s is empty", filePath)
-		fmt.Println("Error: The art file is empty or invalid.")
+		de.output.Write([]byte("Error: The art file is empty or invalid.\r\n"))
 		return fmt.Errorf("empty file")
 	}
 
@@ -79,7 +162,7 @@ func (de *DisplayEngine) DisplayWithOverlay(filePath string, user User, overlayT
 // renderOverlayText renders text at the bottom right corner of the screen
 func (de *DisplayEngine) renderOverlayText(text string) {
 	// Save cursor position
-	fmt.Print("\0337") // Save cursor position (ESC 7)
+	de.output.Write([]byte("\0337")) // Save cursor position (ESC 7)
 
 	// Position cursor at bottom right
 	// Account for text length to position correctly
@@ -91,14 +174,11 @@ func (de *DisplayEngine) renderOverlayText(text string) {
 	}
 
 	// Move cursor and print text with bright white on black background
-	fmt.Printf("\033[%d;%dH", row, col)
-	fmt.Printf("\033[97;40m%s\033[0m", text) // Bright white text on black background
-
-	// Flush output to ensure it's written
-	os.Stdout.Sync()
+	de.output.Write([]byte(fmt.Sprintf("\033[%d;%dH", row, col)))
+	de.output.Write([]byte(fmt.Sprintf("\033[97;40m%s\033[0m", text))) // Bright white text on black background
 
 	// Restore cursor position
-	fmt.Print("\0338") // Restore cursor position (ESC 8)
+	de.output.Write([]byte("\0338")) // Restore cursor position (ESC 8)
 } // loadAndProcess loads and processes the file content
 func (de *DisplayEngine) loadAndProcess(filePath string) ([]string, error) {
 	// Check cache first
@@ -328,19 +408,19 @@ func (de *DisplayEngine) showScrollIndicators() {
 
 	// Position indicator at bottom right
 	percentage := float64(de.scrollState.CurrentLine) / float64(de.scrollState.TotalLines-de.config.Height) * 100
-	fmt.Printf("\033[%d;%dH[%d%%]", de.config.Height, de.config.Width-5, int(percentage))
+	de.output.Write([]byte(fmt.Sprintf("\033[%d;%dH[%d%%]", de.config.Height, de.config.Width-5, int(percentage))))
 }
 
 // ClearScreen clears the screen
 func (de *DisplayEngine) ClearScreen() error {
-	fmt.Print(EraseScreen)
-	MoveCursor(0, 0)
+	de.output.Write([]byte(EraseScreen))
+	de.MoveCursor(0, 0)
 	return nil
 }
 
 // MoveCursor moves the cursor to the specified position
 func (de *DisplayEngine) MoveCursor(x, y int) error {
-	fmt.Printf(Esc+"%d;%df", y, x)
+	de.output.Write([]byte(fmt.Sprintf(Esc+"%d;%df", y, x)))
 	return nil
 }
 
@@ -357,12 +437,12 @@ func (de *DisplayEngine) SetTheme(theme string) error {
 
 // HideCursor hides the terminal cursor
 func (de *DisplayEngine) HideCursor() {
-	fmt.Print(HideCursor)
+	de.output.Write([]byte(HideCursor))
 }
 
 // ShowCursor shows the terminal cursor
 func (de *DisplayEngine) ShowCursor() {
-	fmt.Print(ShowCursor)
+	de.output.Write([]byte(ShowCursor))
 }
 
 // ANSI escape sequences (extracted from original ansiart.go)
@@ -382,18 +462,18 @@ func MoveCursor(x int, y int) {
 // printLine handles newline behavior per mode
 func (de *DisplayEngine) printLine(line string, isLastLine bool) {
 	if de.config.Mode == ModeCP437Raw {
-		fmt.Print(line)
+		de.output.Write([]byte(line))
 		// Only add line break if not the last line to avoid trailing breaks
 		if !isLastLine {
-			fmt.Print("\r\n")
+			de.output.Write([]byte("\r\n"))
 		}
 		return
 	}
 
 	if isLastLine {
-		fmt.Print(line)
+		de.output.Write([]byte(line))
 	} else {
-		fmt.Println(line)
+		de.output.Write([]byte(line + "\r\n"))
 	}
 }
 

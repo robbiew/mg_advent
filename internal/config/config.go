@@ -70,6 +70,7 @@ type PerformanceConfig struct {
 type BBSConfig struct {
 	DropfilePath      string `mapstructure:"dropfile_path"`
 	EmulationRequired int    `mapstructure:"emulation_required"`
+	SocketHost        string `mapstructure:"socket_host"`
 }
 
 type ArtConfig struct {
@@ -146,6 +147,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("display.performance.preload_lines", 100)
 
 	v.SetDefault("bbs.emulation_required", 1)
+	v.SetDefault("bbs.socket_host", "127.0.0.1")
 
 	v.SetDefault("art.base_dir", "art")
 	v.SetDefault("art.cache_size", "100MB")

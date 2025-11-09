@@ -75,14 +75,16 @@ func main() {
 	artManager := art.NewManager(cfg.Art.BaseDir)
 	navigator := navigation.NewNavigator(cfg.Art.BaseDir)
 	validator := validation.NewValidator(cfg.Art.BaseDir)
-	// Create BBS connection for Windows compatibility
+	// Create BBS connection - this is REQUIRED for Windows BBS doors
+	// All output must go through the inherited socket handle, not stdout
 	var bbsConn *bbs.BBSConnection
 	if *dropfilePath != "" {
 		var connErr error
-		bbsConn, connErr = bbs.NewBBSConnection(*dropfilePath)
+		bbsConn, connErr = bbs.NewBBSConnection(*dropfilePath, cfg.BBS.SocketHost)
 		if connErr != nil {
-			logrus.WithError(connErr).Fatal("Failed to create BBS connection")
+			logrus.WithError(connErr).Fatal("Failed to create BBS connection - door cannot function without it")
 		}
+		logrus.Info("BBS connection established - all I/O will go through inherited socket")
 	}
 
 	inputHandler := input.NewInputHandler()
@@ -90,7 +92,10 @@ func main() {
 		inputHandler.SetBBSConnection(bbsConn)
 	}
 
-	// Initialize session manager
+	// Store BBS connection for later use by display components
+	if bbsConn != nil {
+		logrus.Info("BBS connection available - display output will be handled by modified display engine")
+	} // Initialize session manager
 	idleTimeout, _ := time.ParseDuration(cfg.App.TimeoutIdle)
 	maxTimeout, _ := time.ParseDuration(cfg.App.TimeoutMax)
 
@@ -132,6 +137,12 @@ func main() {
 			PreloadLines: cfg.Display.Performance.PreloadLines,
 		},
 	})
+
+	// Configure dual output (OpenDoors pattern: console + BBS connection)
+	if bbsConn != nil {
+		displayEngine.SetBBSConnection(bbsConn)
+		logrus.Info("Display engine configured for dual output (sysop console + user BBS terminal)")
+	}
 
 	// Validate terminal size
 	if err := validator.ValidateTerminalSize(width, height); err != nil {
@@ -232,9 +243,35 @@ func getUserInfo(localMode bool, cfg *config.Config) display.User {
 		}
 	}
 
-	// BBS mode - would parse door32.sys
+	// BBS mode - parse door32.sys if available
 	logrus.Info("Running in BBS mode")
-	// For now, return default values - would be replaced with actual parsing
+
+	if *dropfilePath != "" {
+		door32Info, err := bbs.ParseDoor32(*dropfilePath, cfg.BBS.SocketHost)
+		if err != nil {
+			logrus.WithError(err).Warn("Failed to parse door32.sys, using defaults")
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"alias":     door32Info.Alias,
+				"timeLeft":  door32Info.TimeLeft,
+				"emulation": door32Info.Emulation,
+				"node":      door32Info.NodeNumber,
+			}).Info("Parsed user info from door32.sys")
+
+			return display.User{
+				Alias:     door32Info.Alias,
+				TimeLeft:  time.Duration(door32Info.TimeLeft) * time.Minute,
+				Emulation: door32Info.Emulation,
+				NodeNum:   door32Info.NodeNumber,
+				H:         25,
+				W:         80,
+				ModalH:    25,
+				ModalW:    80,
+			}
+		}
+	}
+
+	// Fallback to default values
 	return display.User{
 		Alias:     "BBSUser",
 		TimeLeft:  30 * time.Minute,
