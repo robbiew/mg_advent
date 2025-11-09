@@ -21,8 +21,8 @@
 # Go workspace file
 go.work
 
-# Project specific
-**/advent
+# Project specific - ignore compiled binary
+/advent
 **/.DS_Store
 **/door32.sys
 
