@@ -141,6 +141,7 @@ func main() {
 	// Configure dual output (OpenDoors pattern: console + BBS connection)
 	if bbsConn != nil {
 		displayEngine.SetBBSConnection(bbsConn)
+		displayEngine.SetUser(user) // Set user info for sysop status bar
 		logrus.Info("Display engine configured for dual output (sysop console + user BBS terminal)")
 	}
 

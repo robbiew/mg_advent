@@ -67,6 +67,17 @@ func (dmw *DualModeWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
+// WriteSysopOnly writes data only to the sysop console (not to BBS connection)
+func (dmw *DualModeWriter) WriteSysopOnly(p []byte) (n int, err error) {
+	if dmw.consoleWriter != nil {
+		// Write UTF-8 directly to sysop console (no CP437 conversion needed for status text)
+		if _, err = dmw.consoleWriter.Write(p); err != nil {
+			return
+		}
+	}
+	return len(p), nil
+}
+
 // convertCP437ToUTF8 converts CP437 encoded bytes to UTF-8
 func convertCP437ToUTF8(data []byte) []byte {
 	// Use the same charmap.CodePage437 decoder as in processCP437
@@ -87,6 +98,8 @@ type DisplayEngine struct {
 	cache          map[string][]string
 	currentContent []string  // Store current content for scrolling re-renders
 	output         io.Writer // Output destination (console, BBS, or both)
+	user           *User     // Current user information for sysop status bar
+	isBBSMode      bool      // Whether running in BBS mode (affects sysop bar display)
 }
 
 // NewDisplayEngine creates a new display engine
@@ -111,10 +124,17 @@ func (de *DisplayEngine) SetBBSConnection(bbsConn io.Writer) {
 	if bbsConn != nil {
 		// Create DualModeWriter: console (CP437->UTF8) + BBS (raw CP437)
 		de.output = NewDualModeWriter(os.Stdout, bbsConn)
+		de.isBBSMode = true
 	} else {
 		// Fall back to console only
 		de.output = os.Stdout
+		de.isBBSMode = false
 	}
+}
+
+// SetUser sets the current user information for the sysop status bar
+func (de *DisplayEngine) SetUser(user User) {
+	de.user = &user
 }
 
 // Display displays the content of an ANSI file
@@ -156,6 +176,9 @@ func (de *DisplayEngine) DisplayWithOverlay(filePath string, user User, overlayT
 		de.renderOverlayText(overlayText)
 	}
 
+	// Render sysop status bar (console only)
+	de.renderSysopStatusBar()
+
 	return err
 }
 
@@ -179,7 +202,74 @@ func (de *DisplayEngine) renderOverlayText(text string) {
 
 	// Restore cursor position
 	de.output.Write([]byte("\0338")) // Restore cursor position (ESC 8)
-} // loadAndProcess loads and processes the file content
+}
+
+// renderSysopStatusBar renders a status bar at the bottom for sysop monitoring
+func (de *DisplayEngine) renderSysopStatusBar() {
+	if !de.isBBSMode || de.user == nil {
+		return // Only show status bar in BBS mode with user info
+	}
+
+	// Cast output to DualModeWriter to access sysop-only output
+	if dmw, ok := de.output.(*DualModeWriter); ok {
+		// Create classic DOS-style status bar content
+		statusContent := fmt.Sprintf("▌ User: %-20s Node: %d  Time: %s  Emulation: %s",
+			de.user.Alias,
+			de.user.NodeNum,
+			formatTimeLeft(de.user.TimeLeft),
+			getEmulationName(de.user.Emulation))
+
+		// Ensure the status bar fills exactly 80 columns (or config width)
+		screenWidth := de.config.Width
+		if screenWidth == 0 {
+			screenWidth = 80 // Default to 80 columns
+		}
+
+		// Create full-width status line with proper padding
+		var statusLine string
+		if len(statusContent) > screenWidth-2 {
+			// Truncate if too long, leaving space for end frame
+			statusLine = statusContent[:screenWidth-5] + "... ▐"
+		} else {
+			// Pad to full width with spaces, then add end frame
+			padding := screenWidth - len(statusContent) - 2 // Reserve space for " ▐"
+			statusLine = statusContent + strings.Repeat(" ", padding) + " ▐"
+		}
+
+		// Position at bottom of screen and write full-width status bar
+		statusBar := fmt.Sprintf("\033[25;1H\033[30;47m%-*s\033[0m", screenWidth, statusLine)
+		dmw.WriteSysopOnly([]byte(statusBar))
+	}
+}
+
+// formatTimeLeft formats time duration for display
+func formatTimeLeft(duration time.Duration) string {
+	minutes := int(duration.Minutes())
+	if minutes > 60 {
+		hours := minutes / 60
+		mins := minutes % 60
+		return fmt.Sprintf("%dh%02dm", hours, mins)
+	}
+	return fmt.Sprintf("%dm", minutes)
+}
+
+// getEmulationName returns human-readable emulation name
+func getEmulationName(emulation int) string {
+	switch emulation {
+	case 0:
+		return "TTY"
+	case 1:
+		return "ANSI"
+	case 2:
+		return "Avatar"
+	case 3:
+		return "RIP"
+	default:
+		return fmt.Sprintf("Unknown(%d)", emulation)
+	}
+}
+
+// loadAndProcess loads and processes the file content
 func (de *DisplayEngine) loadAndProcess(filePath string) ([]string, error) {
 	// Check cache first
 	if cached, exists := de.cache[filePath]; exists {
