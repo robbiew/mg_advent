@@ -40,16 +40,24 @@ func (v *Validator) ValidateArtFiles(year int) error {
 		return fmt.Errorf("art directory for year %d does not exist", year)
 	}
 
-	// Required files
-	requiredFiles := []string{
-		filepath.Join(yearDir, "WELCOME.ANS"),
-		filepath.Join(yearDir, "GOODBYE.ANS"),
-		filepath.Join(yearDir, "COMEBACK.ANS"),
+	// Check common directory exists
+	commonDir := filepath.Join(v.baseArtDir, "common")
+	if _, err := os.Stat(commonDir); os.IsNotExist(err) {
+		return fmt.Errorf("art/common directory does not exist")
 	}
 
-	// Check required files
+	// Required common files (year-independent)
+	requiredCommonFiles := []string{
+		filepath.Join(commonDir, "WELCOME.ANS"),
+		filepath.Join(commonDir, "GOODBYE.ANS"),
+		filepath.Join(commonDir, "COMEBACK.ANS"),
+		filepath.Join(commonDir, "MISSING.ANS"),
+		filepath.Join(commonDir, "NOTYET.ANS"),
+	}
+
+	// Check required common files
 	missingFiles := []string{}
-	for _, file := range requiredFiles {
+	for _, file := range requiredCommonFiles {
 		if _, err := os.Stat(file); os.IsNotExist(err) {
 			missingFiles = append(missingFiles, filepath.Base(file))
 		}

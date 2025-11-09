@@ -33,17 +33,25 @@ func (m *Manager) Validate(year int) error {
 		return fmt.Errorf("art directory for year %d does not exist", year)
 	}
 
-	// Required files for any year
-	requiredFiles := []string{
-		filepath.Join(yearDir, "WELCOME.ANS"),
-		filepath.Join(yearDir, "GOODBYE.ANS"),
-		filepath.Join(yearDir, "COMEBACK.ANS"),
+	// Check common directory exists
+	commonDir := filepath.Join(m.baseDir, "common")
+	if _, err := os.Stat(commonDir); os.IsNotExist(err) {
+		return fmt.Errorf("art/common directory does not exist")
 	}
 
-	// Check required files
-	for _, file := range requiredFiles {
+	// Required common files (year-independent)
+	requiredCommonFiles := []string{
+		filepath.Join(commonDir, "WELCOME.ANS"),
+		filepath.Join(commonDir, "GOODBYE.ANS"),
+		filepath.Join(commonDir, "COMEBACK.ANS"),
+		filepath.Join(commonDir, "MISSING.ANS"),
+		filepath.Join(commonDir, "NOTYET.ANS"),
+	}
+
+	// Check required common files
+	for _, file := range requiredCommonFiles {
 		if _, err := os.Stat(file); os.IsNotExist(err) {
-			return fmt.Errorf("required art file missing: %s", filepath.Base(file))
+			return fmt.Errorf("required common art file missing: %s", filepath.Base(file))
 		}
 	}
 
@@ -63,21 +71,22 @@ func (m *Manager) Validate(year int) error {
 // GetPath returns the path to an art file
 func (m *Manager) GetPath(year int, day int, screenType string) string {
 	yearDir := filepath.Join(m.baseDir, strconv.Itoa(year))
+	commonDir := filepath.Join(m.baseDir, "common")
 
 	switch screenType {
 	case "welcome":
-		return filepath.Join(yearDir, "WELCOME.ANS")
+		return filepath.Join(commonDir, "WELCOME.ANS")
 	case "goodbye", "exit":
-		return filepath.Join(yearDir, "GOODBYE.ANS")
+		return filepath.Join(commonDir, "GOODBYE.ANS")
 	case "comeback":
-		return filepath.Join(yearDir, "COMEBACK.ANS")
+		return filepath.Join(commonDir, "COMEBACK.ANS")
 	case "day":
 		fileName := fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(year)[2:])
 		return filepath.Join(yearDir, fileName)
 	case "missing":
-		return filepath.Join(yearDir, "MISSING.ANS")
+		return filepath.Join(commonDir, "MISSING.ANS")
 	case "notyet":
-		return filepath.Join(yearDir, "NOTYET.ANS")
+		return filepath.Join(commonDir, "NOTYET.ANS")
 	default:
 		return ""
 	}

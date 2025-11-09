@@ -75,10 +75,11 @@ func (n *Navigator) GetAvailableYears() ([]int, error) {
 		}
 	}
 
-	// Sort years descending (newest first)
+	// Sort years ascending (oldest first)
+	// This allows index-based selection: 1=oldest, 2=next, etc.
 	for i := 0; i < len(years)-1; i++ {
 		for j := i + 1; j < len(years); j++ {
-			if years[i] < years[j] {
+			if years[i] > years[j] {
 				years[i], years[j] = years[j], years[i]
 			}
 		}
@@ -210,6 +211,31 @@ func (n *Navigator) SetYear(year int) error {
 	return fmt.Errorf("year %d not available", year)
 }
 
+// SelectYearByIndex selects a year by its index (1-based) from available years
+// Years are sorted ascending (oldest first), so index 1 = oldest year, index 2 = next, etc.
+// Returns the selected year and updated state, or error if invalid index
+func (n *Navigator) SelectYearByIndex(index int, currentState State) (State, string, error) {
+	if index < 1 || index > len(currentState.AvailableYears) {
+		return currentState, "", fmt.Errorf("invalid year index: %d", index)
+	}
+
+	// Get the year (years are sorted ascending: oldest first)
+	selectedYear := currentState.AvailableYears[index-1]
+
+	// Update state with new year
+	currentState.CurrentYear = selectedYear
+	currentState.MaxDay = n.calculateMaxDay(selectedYear)
+
+	// Reset to day 1 when switching years
+	currentState.CurrentDay = 1
+	currentState.Screen = ScreenDay
+
+	// Get art path for first day
+	artPath := n.getDayArtPath(selectedYear, 1)
+
+	return currentState, artPath, nil
+}
+
 // GetInitialState returns the initial application state
 func (n *Navigator) GetInitialState() (State, error) {
 	years, err := n.GetAvailableYears()
@@ -221,7 +247,7 @@ func (n *Navigator) GetInitialState() (State, error) {
 		return State{}, fmt.Errorf("no art years available")
 	}
 
-	// Use current year if available, otherwise latest
+	// Use current year if available, otherwise latest (newest)
 	currentYear := time.Now().Year()
 	var selectedYear int
 	for _, year := range years {
@@ -231,7 +257,8 @@ func (n *Navigator) GetInitialState() (State, error) {
 		}
 	}
 	if selectedYear == 0 {
-		selectedYear = years[0] // Use latest available
+		// Use newest available year (last in ascending sorted list)
+		selectedYear = years[len(years)-1]
 	}
 
 	// Calculate max day for the year
@@ -286,20 +313,20 @@ func (n *Navigator) getDayArtPath(year, day int) string {
 
 // getWelcomeArtPath returns the path to the welcome art file
 func (n *Navigator) getWelcomeArtPath(year int) string {
-	yearDir := filepath.Join(n.baseArtDir, strconv.Itoa(year))
-	return filepath.Join(yearDir, "WELCOME.ANS")
+	commonDir := filepath.Join(n.baseArtDir, "common")
+	return filepath.Join(commonDir, "WELCOME.ANS")
 }
 
 // getComebackArtPath returns the path to the comeback art file
 func (n *Navigator) getComebackArtPath(year int) string {
-	yearDir := filepath.Join(n.baseArtDir, strconv.Itoa(year))
-	return filepath.Join(yearDir, "COMEBACK.ANS")
+	commonDir := filepath.Join(n.baseArtDir, "common")
+	return filepath.Join(commonDir, "COMEBACK.ANS")
 }
 
 // getExitArtPath returns the path to the exit art file
 func (n *Navigator) getExitArtPath(year int) string {
-	yearDir := filepath.Join(n.baseArtDir, strconv.Itoa(year))
-	return filepath.Join(yearDir, "GOODBYE.ANS")
+	commonDir := filepath.Join(n.baseArtDir, "common")
+	return filepath.Join(commonDir, "GOODBYE.ANS")
 }
 
 // ValidateState validates that the current state is consistent

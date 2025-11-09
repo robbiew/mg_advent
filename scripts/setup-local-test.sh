@@ -1,12 +1,12 @@
 #!/bin/bash
 
 # Setup script for local testing of Mistigris Advent Calendar
-# Copies all necessary files to ~/advent for testing
+# Copies all necessary files to ~/retrograde/doors/advent for testing
 # This script is for local development testing only
 
 set -e
 
-TEST_DIR="$HOME/advent"
+TEST_DIR="$HOME/retrograde/doors/advent"
 echo "Setting up local test environment in: $TEST_DIR"
 
 # Clean up any existing test directory
