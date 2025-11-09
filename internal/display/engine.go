@@ -36,6 +36,11 @@ func NewDisplayEngine(config DisplayConfig) *DisplayEngine {
 
 // Display displays the content of an ANSI file
 func (de *DisplayEngine) Display(filePath string, user User) error {
+	return de.DisplayWithOverlay(filePath, user, "")
+}
+
+// DisplayWithOverlay displays the content of an ANSI file with optional overlay text
+func (de *DisplayEngine) DisplayWithOverlay(filePath string, user User, overlayText string) error {
 	fmt.Print(Reset) // Reset text and background colors
 	de.ClearScreen()
 
@@ -61,10 +66,40 @@ func (de *DisplayEngine) Display(filePath string, user User) error {
 
 	// Normal rendering (content fits on screen or scrolling disabled)
 	de.currentContent = nil // Clear stored content
-	return de.renderNormal(content)
+	err = de.renderNormal(content)
+
+	// Add overlay text if provided (bottom right corner)
+	if overlayText != "" {
+		de.renderOverlayText(overlayText)
+	}
+
+	return err
 }
 
-// loadAndProcess loads and processes the file content
+// renderOverlayText renders text at the bottom right corner of the screen
+func (de *DisplayEngine) renderOverlayText(text string) {
+	// Save cursor position
+	fmt.Print("\0337") // Save cursor position (ESC 7)
+
+	// Position cursor at bottom right
+	// Account for text length to position correctly
+	row := de.config.Height
+	col := de.config.Width - len(text)
+
+	if col < 1 {
+		col = 1
+	}
+
+	// Move cursor and print text with bright white on black background
+	fmt.Printf("\033[%d;%dH", row, col)
+	fmt.Printf("\033[97;40m%s\033[0m", text) // Bright white text on black background
+
+	// Flush output to ensure it's written
+	os.Stdout.Sync()
+
+	// Restore cursor position
+	fmt.Print("\0338") // Restore cursor position (ESC 8)
+} // loadAndProcess loads and processes the file content
 func (de *DisplayEngine) loadAndProcess(filePath string) ([]string, error) {
 	// Check cache first
 	if cached, exists := de.cache[filePath]; exists {
