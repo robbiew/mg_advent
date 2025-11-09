@@ -9,7 +9,7 @@ display:
   theme: "classic"
   scrolling:
     enabled: true
-    indicators: true
+    indicators: false  # Don't show [%] indicators
     keyboard_shortcuts: true
   columns:
     handle_80_column_issue: true

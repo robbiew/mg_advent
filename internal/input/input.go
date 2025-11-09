@@ -6,6 +6,7 @@ import (
 	"runtime"
 
 	"github.com/robbiew/advent/internal/bbs"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/term"
 )
 
@@ -69,7 +70,13 @@ func (ih *InputHandler) Open() error {
 		return nil
 	}
 
-	// Unix/Linux: Setup raw terminal mode
+	// Check if stdin is a terminal device
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		// Not a terminal (BBS door mode via pipe/socket) - no terminal setup needed
+		return nil
+	}
+
+	// Unix/Linux: Setup raw terminal mode for interactive terminal
 	// Get the current terminal state
 	oldState, err := term.GetState(int(os.Stdin.Fd()))
 	if err != nil {
@@ -116,64 +123,73 @@ func (ih *InputHandler) ReadKey() (rune, Key, error) {
 		return 0, KeyUnknown, nil
 	}
 
+	// Debug: log raw bytes received
+	if n <= 10 {
+		logrus.WithFields(logrus.Fields{
+			"bytes": buf[:n],
+			"hex":   fmt.Sprintf("%x", buf[:n]),
+			"str":   fmt.Sprintf("%q", string(buf[:n])),
+		}).Debug("Input received")
+	}
+
 	// Handle escape sequences
 	if buf[0] == '\x1b' {
 		if n == 1 {
+			// Just ESC key pressed
 			return 0, KeyEsc, nil
 		}
 
 		// Check for escape sequences
 		seq := string(buf[:n])
 		switch seq {
-		case "\x1b[A", "\x1b[1A": // Up arrow
+		case "\x1b[A", "\x1bOA": // Up arrow (normal and application mode)
 			return 0, KeyArrowUp, nil
-		case "\x1b[B", "\x1b[1B": // Down arrow
+		case "\x1b[B", "\x1bOB": // Down arrow
 			return 0, KeyArrowDown, nil
-		case "\x1b[C", "\x1b[1C": // Right arrow
+		case "\x1b[C", "\x1bOC": // Right arrow
 			return 0, KeyArrowRight, nil
-		case "\x1b[D", "\x1b[1D": // Left arrow
+		case "\x1b[D", "\x1bOD": // Left arrow
 			return 0, KeyArrowLeft, nil
 		case "\x1b[5~": // Page Up
 			return 0, KeyPageUp, nil
 		case "\x1b[6~": // Page Down
 			return 0, KeyPageDown, nil
-		case "\x1b[1~", "\x1b[H": // Home
+		case "\x1b[1~", "\x1b[H", "\x1bOH": // Home
 			return 0, KeyHome, nil
-		case "\x1b[4~", "\x1b[F": // End
+		case "\x1b[4~", "\x1b[F", "\x1bOF": // End
 			return 0, KeyEnd, nil
 		case "\x1b[2~": // Insert
 			return 0, KeyInsert, nil
 		case "\x1b[3~": // Delete
 			return 0, KeyDelete, nil
-		case "\x1b[11~": // F1
+		case "\x1b[11~", "\x1bOP": // F1
 			return 0, KeyF1, nil
-		case "\x1b[12~": // F2
+		case "\x1b[12~", "\x1bOQ": // F2
 			return 0, KeyF2, nil
-		case "\x1b[13~": // F3
+		case "\x1b[13~", "\x1bOR": // F3
 			return 0, KeyF3, nil
-		case "\x1b[14~": // F4
+		case "\x1b[14~", "\x1bOS": // F4
 			return 0, KeyF4, nil
 		case "\x1b[15~": // F5
 			return 0, KeyF5, nil
-		case "\x1b[16~": // F6
+		case "\x1b[17~": // F6
 			return 0, KeyF6, nil
-		case "\x1b[17~": // F7
+		case "\x1b[18~": // F7
 			return 0, KeyF7, nil
-		case "\x1b[18~": // F8
+		case "\x1b[19~": // F8
 			return 0, KeyF8, nil
-		case "\x1b[19~": // F9
+		case "\x1b[20~": // F9
 			return 0, KeyF9, nil
-		case "\x1b[20~": // F10
+		case "\x1b[21~": // F10
 			return 0, KeyF10, nil
-		case "\x1b[21~": // F11
+		case "\x1b[23~": // F11
 			return 0, KeyF11, nil
-		case "\x1b[22~": // F12
+		case "\x1b[24~": // F12
 			return 0, KeyF12, nil
 		default:
-			// Unknown escape sequence, treat as regular character
-			if n > 1 && buf[1] != '[' {
-				return rune(buf[1]), KeyUnknown, nil
-			}
+			// Unknown escape sequence
+			logrus.WithField("sequence", fmt.Sprintf("%q", seq)).Debug("Unknown escape sequence")
+			return 0, KeyUnknown, nil
 		}
 	}
 

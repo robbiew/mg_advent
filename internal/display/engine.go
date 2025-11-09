@@ -13,10 +13,11 @@ import (
 
 // DisplayEngine implements the Displayer interface
 type DisplayEngine struct {
-	config       DisplayConfig
-	themeManager *ThemeManager
-	scrollState  ScrollState
-	cache        map[string][]string
+	config         DisplayConfig
+	themeManager   *ThemeManager
+	scrollState    ScrollState
+	cache          map[string][]string
+	currentContent []string // Store current content for scrolling re-renders
 }
 
 // NewDisplayEngine creates a new display engine
@@ -54,10 +55,12 @@ func (de *DisplayEngine) Display(filePath string, user User) error {
 
 	// Handle scrolling if needed
 	if len(content) > de.config.Height && de.config.Scrolling.Enabled {
+		de.currentContent = content // Store for scroll re-renders
 		return de.renderWithScrolling(content)
 	}
 
-	// Normal rendering
+	// Normal rendering (content fits on screen or scrolling disabled)
+	de.currentContent = nil // Clear stored content
 	return de.renderNormal(content)
 }
 
@@ -185,13 +188,23 @@ func (de *DisplayEngine) handle80ColumnIssue(lines []string) []string {
 
 // renderNormal renders content without scrolling
 func (de *DisplayEngine) renderNormal(lines []string) error {
-	for i := 0; i < de.config.Height && i < len(lines); i++ {
+	// Reset scroll state for non-scrolling content
+	de.scrollState.TotalLines = len(lines)
+	de.scrollState.CurrentLine = 0
+	de.scrollState.CanScrollUp = false
+	de.scrollState.CanScrollDown = false
+
+	// Calculate how many lines to actually display
+	linesToDisplay := de.config.Height
+	if len(lines) < linesToDisplay {
+		linesToDisplay = len(lines)
+	}
+
+	for i := 0; i < linesToDisplay; i++ {
 		line := lines[i]
-		if i == de.config.Height-1 {
-			fmt.Print(line)
-		} else {
-			fmt.Println(line)
-		}
+		// Last line is the last one we're displaying in the viewport
+		isLastLine := i == linesToDisplay-1
+		de.printLine(line, isLastLine)
 
 		// Optional delay between lines
 		time.Sleep(10 * time.Millisecond)
@@ -218,19 +231,19 @@ func (de *DisplayEngine) renderVisibleLines(lines []string) error {
 		endLine = len(lines)
 	}
 
-	for i := startLine; i < endLine && i < len(lines); i++ {
+	// Calculate number of lines we'll actually render
+	numLines := endLine - startLine
+	lineIndex := 0
+
+	for i := startLine; i < endLine; i++ {
 		line := lines[i]
-		if i == endLine-1 {
-			fmt.Print(line)
-		} else {
-			fmt.Println(line)
-		}
+		// Last line is the last one in this viewport render
+		isLastLine := lineIndex == numLines-1
+		de.printLine(line, isLastLine)
+		lineIndex++
 	}
 
-	// Show scroll indicators if enabled
-	if de.config.Scrolling.Indicators {
-		de.showScrollIndicators()
-	}
+	// Don't show scroll indicators - removed to save screen space
 
 	return nil
 }
@@ -240,7 +253,10 @@ func (de *DisplayEngine) ScrollUp() error {
 	if de.scrollState.CurrentLine > 0 {
 		de.scrollState.CurrentLine--
 		de.updateScrollState()
-		// Note: Would need content reference to re-render
+		// Re-render with new scroll position
+		if de.currentContent != nil {
+			return de.renderVisibleLines(de.currentContent)
+		}
 	}
 	return nil
 }
@@ -250,7 +266,10 @@ func (de *DisplayEngine) ScrollDown() error {
 	if de.scrollState.CurrentLine < de.scrollState.TotalLines-de.config.Height {
 		de.scrollState.CurrentLine++
 		de.updateScrollState()
-		// Note: Would need content reference to re-render
+		// Re-render with new scroll position
+		if de.currentContent != nil {
+			return de.renderVisibleLines(de.currentContent)
+		}
 	}
 	return nil
 }
@@ -301,16 +320,46 @@ func (de *DisplayEngine) SetTheme(theme string) error {
 	return nil
 }
 
+// HideCursor hides the terminal cursor
+func (de *DisplayEngine) HideCursor() {
+	fmt.Print(HideCursor)
+}
+
+// ShowCursor shows the terminal cursor
+func (de *DisplayEngine) ShowCursor() {
+	fmt.Print(ShowCursor)
+}
+
 // ANSI escape sequences (extracted from original ansiart.go)
 const (
 	Esc         = "\u001B["
 	EraseScreen = Esc + "2J"
 	Reset       = Esc + "0m"
+	HideCursor  = Esc + "?25l"
+	ShowCursor  = Esc + "?25h"
 )
 
 // MoveCursor moves cursor to X, Y location
 func MoveCursor(x int, y int) {
 	fmt.Printf(Esc+"%d;%df", y, x)
+}
+
+// printLine handles newline behavior per mode
+func (de *DisplayEngine) printLine(line string, isLastLine bool) {
+	if de.config.Mode == ModeCP437Raw {
+		fmt.Print(line)
+		// Only add line break if not the last line to avoid trailing breaks
+		if !isLastLine {
+			fmt.Print("\r\n")
+		}
+		return
+	}
+
+	if isLastLine {
+		fmt.Print(line)
+	} else {
+		fmt.Println(line)
+	}
 }
 
 // trimStringFromSauce trims SAUCE metadata from a string

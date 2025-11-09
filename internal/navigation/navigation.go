@@ -25,7 +25,8 @@ const (
 type Direction int
 
 const (
-	DirLeft Direction = iota
+	DirNone Direction = iota // 0 = no direction
+	DirLeft
 	DirRight
 	DirUp
 	DirDown
@@ -123,33 +124,45 @@ func (n *Navigator) navigateFromWelcome(direction Direction, state State) (State
 
 // navigateFromDay handles navigation from day screen
 func (n *Navigator) navigateFromDay(direction Direction, state State) (State, string, error) {
+	logrus.WithFields(logrus.Fields{
+		"direction":  direction,
+		"currentDay": state.CurrentDay,
+		"maxDay":     state.MaxDay,
+	}).Debug("navigateFromDay called")
+
 	switch direction {
 	case DirRight:
 		if state.CurrentDay < state.MaxDay {
 			state.CurrentDay++
 			artPath := n.getDayArtPath(state.CurrentYear, state.CurrentDay)
+			logrus.WithField("newDay", state.CurrentDay).Debug("Moving to next day")
 			return state, artPath, nil
 		} else if state.MaxDay < 25 {
 			// Move to comeback screen
 			state.Screen = ScreenComeback
 			artPath := n.getComebackArtPath(state.CurrentYear)
+			logrus.Debug("Moving to comeback screen")
 			return state, artPath, nil
 		} else {
 			// Stay on last day
+			logrus.Debug("Already at last day, staying")
 			return state, "", nil
 		}
 	case DirLeft:
 		if state.CurrentDay > 1 {
 			state.CurrentDay--
 			artPath := n.getDayArtPath(state.CurrentYear, state.CurrentDay)
+			logrus.WithField("newDay", state.CurrentDay).Debug("Moving to previous day")
 			return state, artPath, nil
 		} else {
 			// Move to welcome screen
 			state.Screen = ScreenWelcome
 			artPath := n.getWelcomeArtPath(state.CurrentYear)
+			logrus.Debug("Moving to welcome screen")
 			return state, artPath, nil
 		}
 	default:
+		logrus.WithField("direction", direction).Debug("Unhandled direction from day screen")
 		return state, "", nil
 	}
 }

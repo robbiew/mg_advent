@@ -47,7 +47,7 @@ func (sm *Manager) Start() {
 	logrus.WithFields(logrus.Fields{
 		"idle_timeout": sm.idleTimeout,
 		"max_timeout":  sm.maxTimeout,
-	}).Info("Session manager started")
+	}).Debug("Session manager started")
 }
 
 // Stop stops the session timers
@@ -67,7 +67,7 @@ func (sm *Manager) Stop() {
 		sm.maxTimer = nil
 	}
 
-	logrus.Info("Session manager stopped")
+	logrus.Debug("Session manager stopped")
 }
 
 // ResetIdleTimer resets the idle timeout
