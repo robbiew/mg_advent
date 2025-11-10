@@ -1,5 +1,7 @@
 # MiSTiGRiS Advent Calendar
 
+![Welcome Screen](images/WELCOME.png)
+
 An interactive BBS door program that displays ANSI Christmas art, a new ones each day in December. Browse past collections as well. Compatible with all modern BBS systems that support Door32 dropfiles -- Windows and Linux.
 
 ## Features
