@@ -12,7 +12,7 @@ echo "Building Mistigris Advent Calendar..."
 
 # Default values
 OUTPUT_DIR="dist"
-PLATFORMS=("linux/amd64" "linux/arm64" "windows/amd64")
+PLATFORMS=("linux/amd64" "linux/arm64" "windows/386")
 
 # Create output directory
 mkdir -p "$OUTPUT_DIR"
