@@ -1,6 +1,6 @@
 # MiSTiGRiS Advent Calendar
 
-> **✨ UPDATED FOR 2025 ✨**
+**✨ UPDATED FOR 2025 ✨**
 
 <img src="images/WELCOME.png" alt="Welcome Screen" width="100%">
 
