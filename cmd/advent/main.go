@@ -27,6 +27,7 @@ var (
 	disableDate  = flag.Bool("debug-disable-date", false, "disable date validation")
 	disableArt   = flag.Bool("debug-disable-art", false, "disable art validation")
 	dropfilePath = flag.String("path", "", "path to door32.sys file")
+	debugMode    = flag.Bool("debug", false, "enable debug logging")
 )
 
 func main() {
@@ -34,7 +35,11 @@ func main() {
 
 	// Setup logging - only show errors by default to keep BBS output clean
 	// Set to InfoLevel or DebugLevel for troubleshooting
-	logrus.SetLevel(logrus.ErrorLevel)
+	if *debugMode {
+		logrus.SetLevel(logrus.DebugLevel)
+	} else {
+		logrus.SetLevel(logrus.ErrorLevel)
+	}
 	logrus.SetFormatter(&logrus.TextFormatter{
 		DisableTimestamp: true, // Cleaner output for BBS
 	})
@@ -309,19 +314,45 @@ func detectTerminalSize(bbsConn *bbs.BBSConnection) (width, height int) {
 		}
 	}()
 
-	// For BBS doors, use standard dimensions (following Talisman's approach)
-	// Most BBS systems assume 80x25 terminal dimensions - this is the industry standard
+	logrus.Debug("Starting terminal size detection")
+
+	// Try to detect actual terminal size for BBS connections
 	if bbsConn != nil {
+		logrus.Debug("BBS connection available, attempting terminal size detection")
+		w, h, err := bbsConn.DetectTerminalSize()
 		logrus.WithFields(logrus.Fields{
-			"width":  80,
-			"height": 25,
-			"method": "BBS standard dimensions",
-		}).Info("Using standard BBS terminal size")
-		return 80, 25
+			"width":  w,
+			"height": h,
+			"error":  err,
+		}).Debug("Terminal detection result")
+
+		if err == nil && w > 0 && h > 0 {
+			logrus.WithFields(logrus.Fields{
+				"width":  w,
+				"height": h,
+				"method": "BBS terminal size detection",
+			}).Info("Detected actual terminal size")
+			return w, h
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"error":  err,
+				"width":  w,
+				"height": h,
+			}).Warn("BBS terminal size detection failed, using standard 80x25")
+			return 80, 25 // Fallback to standard BBS dimensions
+		}
 	}
 
 	// Fallback: Try to get terminal size from stdin (works for local mode)
-	if width, height, err := term.GetSize(int(os.Stdin.Fd())); err == nil {
+	logrus.Debug("Attempting fallback terminal size detection using term.GetSize")
+	width, height, err := term.GetSize(int(os.Stdin.Fd()))
+	logrus.WithFields(logrus.Fields{
+		"width":  width,
+		"height": height,
+		"error":  err,
+	}).Debug("term.GetSize result")
+
+	if err == nil && width > 0 && height > 0 {
 		logrus.WithFields(logrus.Fields{
 			"width":  width,
 			"height": height,
@@ -331,7 +362,7 @@ func detectTerminalSize(bbsConn *bbs.BBSConnection) (width, height int) {
 	}
 
 	// Final fallback to default 80x25
-	logrus.Info("Could not detect terminal size, using default 80x25")
+	logrus.WithError(err).Info("Could not detect terminal size, using default 80x25")
 	return 80, 25
 }
 

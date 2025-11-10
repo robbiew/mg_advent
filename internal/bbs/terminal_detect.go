@@ -11,16 +11,26 @@ import (
 	"golang.org/x/term"
 )
 
-// DetectTerminalSize queries the terminal for its actual size using ANSI CPR
-// This is the modern BBS approach - more reliable than dropfile values
+// DetectTerminalSize queries the terminal for its actual size using ANSI escape sequences
+// This method moves cursor to far bottom-right, queries position, then restores cursor
 // Returns (width, height, error)
 func DetectTerminalSize(writer io.Writer, reader io.Reader) (int, int, error) {
-	// Send Cursor Position Report (CPR) query: ESC[6n
-	// Terminal responds with: ESC[{row};{col}R
-	logrus.Debug("Querying terminal for size using ANSI CPR")
+	logrus.Debug("Detecting terminal size using cursor positioning method")
 
-	// Send query
-	_, err := writer.Write([]byte("\033[6n"))
+	// Step 1: Save current cursor position
+	_, err := writer.Write([]byte("\033[s")) // Save cursor position
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to save cursor position: %w", err)
+	}
+
+	// Step 2: Move cursor to far bottom-right (terminal will clamp to actual size)
+	_, err = writer.Write([]byte("\033[999;999H")) // Move to row 999, col 999
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to move cursor: %w", err)
+	}
+
+	// Step 3: Query current cursor position (will be clamped to actual terminal size)
+	_, err = writer.Write([]byte("\033[6n")) // Query cursor position
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to send CPR query: %w", err)
 	}
@@ -71,10 +81,13 @@ func DetectTerminalSize(writer io.Writer, reader io.Reader) (int, int, error) {
 		return 0, 0, fmt.Errorf("failed to parse columns: %w", err)
 	}
 
+	// Step 4: Restore cursor position
+	writer.Write([]byte("\033[u")) // Restore cursor position
+
 	logrus.WithFields(logrus.Fields{
 		"width":  cols,
 		"height": rows,
-	}).Info("Detected terminal size via ANSI CPR")
+	}).Info("Detected terminal size via cursor positioning method")
 
 	return cols, rows, nil
 }
