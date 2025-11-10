@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -13,6 +12,7 @@ import (
 	"github.com/robbiew/advent/internal/art"
 	"github.com/robbiew/advent/internal/bbs"
 	"github.com/robbiew/advent/internal/display"
+	"github.com/robbiew/advent/internal/embedded"
 	"github.com/robbiew/advent/internal/input"
 	"github.com/robbiew/advent/internal/navigation"
 	"github.com/robbiew/advent/internal/session"
@@ -32,12 +32,22 @@ var (
 func main() {
 	flag.Parse()
 
-	// Setup logging (simplified)
-	logrus.SetLevel(logrus.InfoLevel)
-	logrus.SetFormatter(&logrus.TextFormatter{})
+	// Setup logging - only show errors by default to keep BBS output clean
+	// Set to InfoLevel or DebugLevel for troubleshooting
+	logrus.SetLevel(logrus.ErrorLevel)
+	logrus.SetFormatter(&logrus.TextFormatter{
+		DisableTimestamp: true, // Cleaner output for BBS
+	})
+
+	// Initialize components with embedded art filesystem
+	artManager := art.NewManager(embedded.ArtFS, "art")
+	navigator := navigation.NewNavigator(embedded.ArtFS, "art")
+	validator := validation.NewValidator(embedded.ArtFS, "art")
 
 	// Determine display mode
-	displayMode := display.ModeCP437
+	// BBS mode: raw CP437 bytes (no conversion)
+	// Local mode: UTF-8 conversion for terminal display
+	displayMode := display.ModeCP437Raw
 	if *localMode {
 		displayMode = display.ModeUTF8
 	}
@@ -62,11 +72,8 @@ func main() {
 			CacheSizeMB:  50,
 			PreloadLines: 100,
 		},
-	})
+	}, embedded.ArtFS)
 
-	artManager := art.NewManager("art")
-	navigator := navigation.NewNavigator("art")
-	validator := validation.NewValidator("art")
 	// Create BBS connection - this is REQUIRED for Windows BBS doors
 	// All output must go through the inherited socket handle, not stdout
 	var bbsConn *bbs.BBSConnection
@@ -107,8 +114,20 @@ func main() {
 	// Get user information
 	user := getUserInfo(*localMode)
 
-	// Detect terminal size and update display engine
-	width, height := detectTerminalSize()
+	// Detect terminal size (prefer BBS connection query over term.GetSize)
+	width, height := detectTerminalSize(bbsConn)
+
+	// Update user struct with detected terminal size
+	user.W = width
+	user.H = height
+	user.ModalW = width
+	user.ModalH = height
+
+	logrus.WithFields(logrus.Fields{
+		"width":  width,
+		"height": height,
+	}).Info("Terminal size applied to user session")
+
 	displayEngine = display.NewDisplayEngine(display.DisplayConfig{
 		Mode:   displayMode,
 		Width:  width,
@@ -128,13 +147,13 @@ func main() {
 			CacheSizeMB:  50,
 			PreloadLines: 100,
 		},
-	})
+	}, embedded.ArtFS)
 
-	// Configure dual output (OpenDoors pattern: console + BBS connection)
+	// Configure BBS output (different behavior on Windows vs Linux)
 	if bbsConn != nil {
 		displayEngine.SetBBSConnection(bbsConn)
 		displayEngine.SetUser(user) // Set user info for sysop status bar
-		logrus.Info("Display engine configured for dual output (sysop console + user BBS terminal)")
+		logrus.Info("Display engine configured for BBS output")
 	}
 
 	// Validate terminal size
@@ -193,7 +212,7 @@ func main() {
 	defer displayEngine.ShowCursor() // Ensure cursor is shown on exit
 
 	// Main application loop
-	runMainLoop(displayEngine, artManager, navigator, inputHandler, sessionManager, initialState, user)
+	runMainLoop(displayEngine, artManager, navigator, inputHandler, sessionManager, initialState)
 }
 
 func getUserInfo(localMode bool) display.User {
@@ -252,25 +271,40 @@ func getUserInfo(localMode bool) display.User {
 	}
 }
 
-func detectTerminalSize() (width, height int) {
-	// Try to get terminal size from stdin
+func detectTerminalSize(bbsConn *bbs.BBSConnection) (width, height int) {
+	// First try BBS connection ANSI query (most reliable for BBS environments)
+	if bbsConn != nil {
+		if w, h, err := bbsConn.DetectTerminalSize(); err == nil {
+			logrus.WithFields(logrus.Fields{
+				"width":  w,
+				"height": h,
+				"method": "BBS ANSI CPR query",
+			}).Info("Detected terminal size")
+			return w, h
+		} else {
+			logrus.WithError(err).Warn("BBS terminal size detection failed, trying term.GetSize fallback")
+		}
+	}
+
+	// Fallback: Try to get terminal size from stdin (works for local mode)
 	if width, height, err := term.GetSize(int(os.Stdin.Fd())); err == nil {
 		logrus.WithFields(logrus.Fields{
 			"width":  width,
 			"height": height,
-		}).Debug("Detected terminal size")
+			"method": "term.GetSize (local)",
+		}).Info("Detected terminal size")
 		return width, height
 	}
 
-	// Fallback to default 80x25
-	logrus.Debug("Could not detect terminal size, using default 80x25")
+	// Final fallback to default 80x25
+	logrus.Info("Could not detect terminal size, using default 80x25")
 	return 80, 25
 }
 
-func applyDateOverride(state *navigation.State, dateStr string) error {
+func applyDateOverride(_ *navigation.State, _ string) error {
 	// Parse and apply debug date override
 	// Implementation would update state.CurrentDay and state.MaxDay
-	logrus.WithField("date", dateStr).Info("Applied date override")
+	// Currently a stub - not implemented
 	return nil
 }
 
@@ -278,14 +312,14 @@ func displayNotYet(displayEngine *display.DisplayEngine, artManager *art.Manager
 	// Display "not yet" screen
 	notYetPath := artManager.GetPath(year, 0, "notyet")
 	if notYetPath != "" {
-		displayEngine.Display(notYetPath, display.User{})
+		displayEngine.Display(notYetPath)
 	}
 	time.Sleep(3 * time.Second)
 }
 
 func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 	navigator *navigation.Navigator, inputHandler *input.InputHandler,
-	sessionManager *session.Manager, state navigation.State, user display.User) {
+	sessionManager *session.Manager, state navigation.State) {
 
 	currentState := state
 	var currentArtPath string
@@ -311,27 +345,7 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 				"day":            currentState.CurrentDay,
 			}).Debug("Displaying art")
 
-			// Check if art file exists, fallback to MISSING.ANS if not found
-			finalArtPath := artPath
-			overlayText := ""
-
-			if _, err := os.Stat(artPath); os.IsNotExist(err) {
-				logrus.WithField("missingPath", artPath).Warn("Art file not found, using MISSING.ANS")
-
-				// Extract just the filename for display
-				missingFileName := filepath.Base(artPath)
-				overlayText = missingFileName
-
-				finalArtPath = artManager.GetPath(currentState.CurrentYear, 0, "missing")
-
-				// If MISSING.ANS also doesn't exist, log error
-				if _, err := os.Stat(finalArtPath); os.IsNotExist(err) {
-					logrus.WithField("missingPath", finalArtPath).Error("MISSING.ANS not found")
-					continue
-				}
-			}
-
-			if err := displayEngine.DisplayWithOverlay(finalArtPath, user, overlayText); err != nil {
+			if err := displayEngine.Display(artPath); err != nil {
 				logrus.WithError(err).Error("Failed to display art")
 			}
 			currentArtPath = artPath
@@ -354,7 +368,7 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 				logrus.Info("User requested exit from welcome screen")
 				exitPath := artManager.GetPath(currentState.CurrentYear, 0, "goodbye")
 				if exitPath != "" {
-					displayEngine.Display(exitPath, user)
+					displayEngine.Display(exitPath)
 					time.Sleep(2 * time.Second)
 				}
 				break
@@ -362,10 +376,7 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 				// Go back to welcome screen
 				logrus.Info("User requested return to welcome screen")
 				currentState.Screen = navigation.ScreenWelcome
-				welcomePath := artManager.GetPath(currentState.CurrentYear, 0, "welcome")
-				if welcomePath != "" {
-					artPath = welcomePath
-				}
+				// Art will be displayed in next iteration
 				continue
 			}
 		}
@@ -387,9 +398,7 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 					"artPath":      newArtPath,
 				}).Info("Year selected")
 				currentState = newState
-				if newArtPath != "" {
-					artPath = newArtPath // Update artPath to display new art
-				}
+				// Art will be displayed in next iteration
 			}
 			continue
 		}

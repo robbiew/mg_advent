@@ -85,12 +85,13 @@ func NewBBSConnection(dropfilePath, socketHost string) (*BBSConnection, error) {
 		}
 
 	} else {
-		// Unix/Linux: Use STDIN/STDOUT
+		// Unix/Linux: Always use STDIN/STDOUT
+		// The BBS system handles the socket and provides stdin/stdout to the door
 		conn.connType = ConnectionStdio
 		conn.stdinReader = bufio.NewReader(os.Stdin)
 		conn.stdoutWriter = bufio.NewWriter(os.Stdout)
 		conn.isConnected = true
-		logrus.Info("Using STDIN/STDOUT for BBS connection")
+		logrus.Info("Using STDIN/STDOUT for Linux BBS (door32.sys parsed for user info only)")
 	}
 
 	return conn, nil

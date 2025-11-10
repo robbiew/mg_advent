@@ -2,7 +2,7 @@ package navigation
 
 import (
 	"fmt"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -48,12 +48,14 @@ type State struct {
 // Navigator handles navigation logic
 type Navigator struct {
 	baseArtDir string
+	fs         fs.FS
 }
 
 // NewNavigator creates a new navigator
-func NewNavigator(baseArtDir string) *Navigator {
+func NewNavigator(embeddedFS fs.FS, baseArtDir string) *Navigator {
 	return &Navigator{
 		baseArtDir: baseArtDir,
+		fs:         embeddedFS,
 	}
 }
 
@@ -61,7 +63,7 @@ func NewNavigator(baseArtDir string) *Navigator {
 func (n *Navigator) GetAvailableYears() ([]int, error) {
 	var years []int
 
-	entries, err := os.ReadDir(n.baseArtDir)
+	entries, err := fs.ReadDir(n.fs, n.baseArtDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read art directory: %w", err)
 	}
@@ -186,7 +188,7 @@ func (n *Navigator) navigateFromComeback(direction Direction, state State) (Stat
 }
 
 // navigateFromYearSelect handles navigation from year selection screen
-func (n *Navigator) navigateFromYearSelect(direction Direction, state State) (State, string, error) {
+func (n *Navigator) navigateFromYearSelect(_ Direction, state State) (State, string, error) {
 	// Year selection navigation would be implemented here
 	// For now, return to welcome
 	state.Screen = ScreenWelcome
@@ -312,21 +314,15 @@ func (n *Navigator) getDayArtPath(year, day int) string {
 }
 
 // getWelcomeArtPath returns the path to the welcome art file
-func (n *Navigator) getWelcomeArtPath(year int) string {
+func (n *Navigator) getWelcomeArtPath(_ int) string {
 	commonDir := filepath.Join(n.baseArtDir, "common")
 	return filepath.Join(commonDir, "WELCOME.ANS")
 }
 
 // getComebackArtPath returns the path to the comeback art file
-func (n *Navigator) getComebackArtPath(year int) string {
+func (n *Navigator) getComebackArtPath(_ int) string {
 	commonDir := filepath.Join(n.baseArtDir, "common")
 	return filepath.Join(commonDir, "COMEBACK.ANS")
-}
-
-// getExitArtPath returns the path to the exit art file
-func (n *Navigator) getExitArtPath(year int) string {
-	commonDir := filepath.Join(n.baseArtDir, "common")
-	return filepath.Join(commonDir, "GOODBYE.ANS")
 }
 
 // ValidateState validates that the current state is consistent

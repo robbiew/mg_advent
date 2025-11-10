@@ -2,7 +2,7 @@ package validation
 
 import (
 	"fmt"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -13,12 +13,14 @@ import (
 // Validator handles various validation checks
 type Validator struct {
 	baseArtDir string
+	fs         fs.FS
 }
 
 // NewValidator creates a new validator
-func NewValidator(baseArtDir string) *Validator {
+func NewValidator(embeddedFS fs.FS, baseArtDir string) *Validator {
 	return &Validator{
 		baseArtDir: baseArtDir,
+		fs:         embeddedFS,
 	}
 }
 
@@ -36,13 +38,13 @@ func (v *Validator) ValidateArtFiles(year int) error {
 	yearDir := filepath.Join(v.baseArtDir, strconv.Itoa(year))
 
 	// Check if year directory exists
-	if _, err := os.Stat(yearDir); os.IsNotExist(err) {
+	if _, err := fs.Stat(v.fs, yearDir); err != nil {
 		return fmt.Errorf("art directory for year %d does not exist", year)
 	}
 
 	// Check common directory exists
 	commonDir := filepath.Join(v.baseArtDir, "common")
-	if _, err := os.Stat(commonDir); os.IsNotExist(err) {
+	if _, err := fs.Stat(v.fs, commonDir); err != nil {
 		return fmt.Errorf("art/common directory does not exist")
 	}
 
@@ -58,7 +60,7 @@ func (v *Validator) ValidateArtFiles(year int) error {
 	// Check required common files
 	missingFiles := []string{}
 	for _, file := range requiredCommonFiles {
-		if _, err := os.Stat(file); os.IsNotExist(err) {
+		if _, err := fs.Stat(v.fs, file); err != nil {
 			missingFiles = append(missingFiles, filepath.Base(file))
 		}
 	}
@@ -81,7 +83,7 @@ func (v *Validator) ValidateArtFiles(year int) error {
 	for day := 1; day <= maxDay; day++ {
 		fileName := fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(year)[2:])
 		filePath := filepath.Join(yearDir, fileName)
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		if _, err := fs.Stat(v.fs, filePath); err != nil {
 			missingDays = append(missingDays, day)
 		}
 	}
@@ -105,7 +107,7 @@ func (v *Validator) ValidateYear(year int) error {
 
 	// Check if year directory exists
 	yearDir := filepath.Join(v.baseArtDir, strconv.Itoa(year))
-	if _, err := os.Stat(yearDir); os.IsNotExist(err) {
+	if _, err := fs.Stat(v.fs, yearDir); err != nil {
 		return fmt.Errorf("no art available for year %d", year)
 	}
 

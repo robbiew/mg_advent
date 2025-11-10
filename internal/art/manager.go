@@ -2,7 +2,7 @@ package art
 
 import (
 	"fmt"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -14,13 +14,15 @@ import (
 type Manager struct {
 	baseDir string
 	cache   map[string][]string
+	fs      fs.FS // Embedded filesystem
 }
 
-// NewManager creates a new art manager
-func NewManager(baseDir string) *Manager {
+// NewManager creates a new art manager using embedded filesystem
+func NewManager(embeddedFS fs.FS, baseDir string) *Manager {
 	return &Manager{
 		baseDir: baseDir,
 		cache:   make(map[string][]string),
+		fs:      embeddedFS,
 	}
 }
 
@@ -29,13 +31,13 @@ func (m *Manager) Validate(year int) error {
 	yearDir := filepath.Join(m.baseDir, strconv.Itoa(year))
 
 	// Check if year directory exists
-	if _, err := os.Stat(yearDir); os.IsNotExist(err) {
+	if _, err := fs.Stat(m.fs, yearDir); err != nil {
 		return fmt.Errorf("art directory for year %d does not exist", year)
 	}
 
 	// Check common directory exists
 	commonDir := filepath.Join(m.baseDir, "common")
-	if _, err := os.Stat(commonDir); os.IsNotExist(err) {
+	if _, err := fs.Stat(m.fs, commonDir); err != nil {
 		return fmt.Errorf("art/common directory does not exist")
 	}
 
@@ -50,7 +52,7 @@ func (m *Manager) Validate(year int) error {
 
 	// Check required common files
 	for _, file := range requiredCommonFiles {
-		if _, err := os.Stat(file); os.IsNotExist(err) {
+		if _, err := fs.Stat(m.fs, file); err != nil {
 			return fmt.Errorf("required common art file missing: %s", filepath.Base(file))
 		}
 	}
@@ -59,7 +61,7 @@ func (m *Manager) Validate(year int) error {
 	for day := 1; day <= 25; day++ {
 		fileName := fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(year)[2:])
 		filePath := filepath.Join(yearDir, fileName)
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		if _, err := fs.Stat(m.fs, filePath); err != nil {
 			logrus.WithField("file", fileName).Warn("Daily art file missing")
 			// Don't fail validation for missing daily files, just warn
 		}
@@ -96,7 +98,7 @@ func (m *Manager) GetPath(year int, day int, screenType string) string {
 func (m *Manager) ListYears() ([]int, error) {
 	var years []int
 
-	entries, err := os.ReadDir(m.baseDir)
+	entries, err := fs.ReadDir(m.fs, m.baseDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read art directory: %w", err)
 	}
@@ -123,7 +125,7 @@ func (m *Manager) LoadArt(filePath string) ([]string, error) {
 	}
 
 	// Load file
-	content, err := os.ReadFile(filePath)
+	content, err := fs.ReadFile(m.fs, filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read art file: %w", err)
 	}
@@ -242,7 +244,7 @@ func (m *Manager) GetArtInfo(filePath string) (lines int, width int, height int,
 
 // ValidateFile validates a single art file
 func (m *Manager) ValidateFile(filePath string) error {
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+	if _, err := fs.Stat(m.fs, filePath); err != nil {
 		return fmt.Errorf("file does not exist: %s", filePath)
 	}
 

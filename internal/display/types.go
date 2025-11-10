@@ -52,7 +52,7 @@ type PerformanceConfig struct {
 
 // Displayer interface for display operations
 type Displayer interface {
-	Display(filePath string, user User) error
+	Display(filePath string) error
 	ClearScreen() error
 	MoveCursor(x, y int) error
 	GetDimensions() (width, height int)
