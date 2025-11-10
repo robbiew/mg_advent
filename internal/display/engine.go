@@ -3,6 +3,7 @@ package display
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"strings"
@@ -10,9 +11,7 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/text/encoding/charmap"
-)
-
-// TeeWriter writes to multiple writers simultaneously
+) // TeeWriter writes to multiple writers simultaneously
 type TeeWriter struct {
 	writers []io.Writer
 }
@@ -32,7 +31,6 @@ func (tw *TeeWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// DualModeWriter handles different encodings for console vs BBS output
 type DualModeWriter struct {
 	consoleWriter io.Writer // Sysop console (needs CP437->UTF8 conversion)
 	bbsWriter     io.Writer // BBS connection (raw CP437)
@@ -44,9 +42,7 @@ func NewDualModeWriter(consoleWriter, bbsWriter io.Writer) *DualModeWriter {
 		consoleWriter: consoleWriter,
 		bbsWriter:     bbsWriter,
 	}
-}
-
-// Write implements io.Writer interface with encoding conversion
+} // Write implements io.Writer interface with encoding conversion
 func (dmw *DualModeWriter) Write(p []byte) (n int, err error) {
 	// Send raw CP437 to BBS connection (user terminal)
 	if dmw.bbsWriter != nil {
@@ -87,10 +83,11 @@ type DisplayEngine struct {
 	cache          map[string][]string
 	currentContent []string  // Store current content for scrolling re-renders
 	output         io.Writer // Output destination (console, BBS, or both)
+	fs             fs.FS     // Embedded filesystem for art files
 }
 
 // NewDisplayEngine creates a new display engine
-func NewDisplayEngine(config DisplayConfig) *DisplayEngine {
+func NewDisplayEngine(config DisplayConfig, embeddedFS fs.FS) *DisplayEngine {
 	return &DisplayEngine{
 		config:       config,
 		themeManager: NewThemeManager(),
@@ -101,16 +98,15 @@ func NewDisplayEngine(config DisplayConfig) *DisplayEngine {
 			VisibleLines: config.Height,
 		},
 		output: os.Stdout, // Default to stdout only
+		fs:     embeddedFS,
 	}
 }
 
-// SetBBSConnection configures dual output to both console and BBS connection
-// Following OpenDoors pattern: ODComSendBuffer() + ODScrnDisplayString()
-// Console gets CP437->UTF8 conversion, BBS gets raw CP437
+// SetBBSConnection configures output to BBS connection only (no sysop console)
 func (de *DisplayEngine) SetBBSConnection(bbsConn io.Writer) {
 	if bbsConn != nil {
-		// Create DualModeWriter: console (CP437->UTF8) + BBS (raw CP437)
-		de.output = NewDualModeWriter(os.Stdout, bbsConn)
+		// Output only to BBS connection (user terminal)
+		de.output = bbsConn
 	} else {
 		// Fall back to console only
 		de.output = os.Stdout
@@ -186,8 +182,8 @@ func (de *DisplayEngine) loadAndProcess(filePath string) ([]string, error) {
 		return cached, nil
 	}
 
-	// Load file
-	content, err := os.ReadFile(filePath)
+	// Load file from embedded filesystem
+	content, err := fs.ReadFile(de.fs, filePath)
 	if err != nil {
 		return nil, err
 	}

@@ -51,10 +51,10 @@ func main() {
 
 	// Determine display mode
 	// BBS mode: raw CP437 bytes (no conversion)
-	// Local mode: UTF-8 conversion for terminal display
+	// Local mode: CP437 to UTF-8 conversion for terminal display
 	displayMode := display.ModeCP437Raw
 	if *localMode {
-		displayMode = display.ModeUTF8
+		displayMode = display.ModeCP437
 	}
 
 	// Initialize components with hard-coded sensible defaults
@@ -163,7 +163,6 @@ func main() {
 	// Configure BBS output (different behavior on Windows vs Linux)
 	if bbsConn != nil {
 		displayEngine.SetBBSConnection(bbsConn)
-		displayEngine.SetUser(user) // Set user info for sysop status bar
 		logrus.Info("Display engine configured for BBS output")
 	}
 
@@ -195,7 +194,7 @@ func main() {
 		logrus.Info("Date validation disabled by debug flag")
 	} else {
 		if err := validator.ValidateDate(); err != nil {
-			displayNotYet(displayEngine, artManager, initialState.CurrentYear)
+			displayNotYet(displayEngine, artManager, initialState.CurrentYear, user)
 			return
 		}
 	}
@@ -246,7 +245,7 @@ func main() {
 	defer displayEngine.ShowCursor() // Ensure cursor is shown on exit
 
 	// Main application loop
-	runMainLoop(displayEngine, artManager, navigator, inputHandler, sessionManager, initialState)
+	runMainLoop(displayEngine, artManager, navigator, inputHandler, sessionManager, initialState, user)
 }
 
 func getUserInfo(localMode bool) display.User {
@@ -373,18 +372,18 @@ func applyDateOverride(_ *navigation.State, _ string) error {
 	return nil
 }
 
-func displayNotYet(displayEngine *display.DisplayEngine, artManager *art.Manager, year int) {
+func displayNotYet(displayEngine *display.DisplayEngine, artManager *art.Manager, year int, user display.User) {
 	// Display "not yet" screen
 	notYetPath := artManager.GetPath(year, 0, "notyet")
 	if notYetPath != "" {
-		displayEngine.Display(notYetPath)
+		displayEngine.Display(notYetPath, user)
 	}
 	time.Sleep(3 * time.Second)
 }
 
 func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 	navigator *navigation.Navigator, inputHandler *input.InputHandler,
-	sessionManager *session.Manager, state navigation.State) {
+	sessionManager *session.Manager, state navigation.State, user display.User) {
 
 	currentState := state
 	var currentArtPath string
@@ -410,7 +409,7 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 				"day":            currentState.CurrentDay,
 			}).Debug("Displaying art")
 
-			if err := displayEngine.Display(artPath); err != nil {
+			if err := displayEngine.Display(artPath, user); err != nil {
 				logrus.WithError(err).Error("Failed to display art")
 			}
 			currentArtPath = artPath
@@ -433,7 +432,7 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 				logrus.Info("User requested exit from welcome screen")
 				exitPath := artManager.GetPath(currentState.CurrentYear, 0, "goodbye")
 				if exitPath != "" {
-					displayEngine.Display(exitPath)
+					displayEngine.Display(exitPath, user)
 					time.Sleep(2 * time.Second)
 				}
 				break
