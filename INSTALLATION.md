@@ -13,30 +13,7 @@ The Mistigris Advent Calendar is a BBS door program that displays interactive AN
 
 ### Windows BBS Systems
 
-1. **Download Files**
-   - Download `advent-windows-amd64.exe` from releases
-   - Rename to `advent.exe`
-   - Create your door directory (e.g., `C:\bbs\doors\advent\`)
-
-2. **Directory Structure**
-   ```
-   C:\bbs\doors\advent\
-   ├── advent.exe
-   ├── advent.bat           # BBS launcher script
-   ├── config\
-   │   └── config.yaml
-   └── art\
-       ├── common\          # Year-independent screens
-       ├── 2023\           # 2023 advent calendar
-       ├── 2024\           # 2024 advent calendar
-       └── 2025\           # 2025 advent calendar
-   ```
-
-3. **Create Launch Script**
-   - Copy `scripts/advent.bat` template to your door directory
-   - Edit the paths to match your BBS setup
-   
-   Example `advent.bat`:
+Example `advent.bat`:
    ```batch
    @echo off
    REM BBS Door Launcher - Replace paths with your BBS directories
@@ -50,38 +27,9 @@ The Mistigris Advent Calendar is a BBS door program that displays interactive AN
    advent.exe --path "%DROPFILE_PATH%"
    ```
 
-4. **Configure Your BBS**
-   - Add door menu entry pointing to `advent.bat`
-   - Ensure your BBS creates `door32.sys` files in the temp directory
-   - Set ANSI emulation requirement
-
 ### Linux BBS Systems
-
-1. **Download Files**
-   - Download `advent-linux-amd64` from releases
-   - Rename to `advent` and make executable: `chmod +x advent`
-   - Create your door directory (e.g., `/opt/bbs/doors/advent/`)
-
-2. **Directory Structure**
-   ```
-   /opt/bbs/doors/advent/
-   ├── advent               # Executable
-   ├── advent.sh           # BBS launcher script
-   ├── config/
-   │   └── config.yaml
-   └── art/
-       ├── common/         # Year-independent screens
-       ├── 2023/          # 2023 advent calendar
-       ├── 2024/          # 2024 advent calendar
-       └── 2025/          # 2025 advent calendar
-   ```
-
-3. **Create Launch Script**
-   - Copy `scripts/advent.sh` template to your door directory
-   - Edit the paths to match your BBS setup
-   - Make it executable: `chmod +x advent.sh`
    
-   Example `advent.sh`:
+Example `advent.sh`:
    ```bash
    #!/bin/bash
    # BBS Door Launcher - Replace paths with your BBS directories
@@ -93,29 +41,14 @@ The Mistigris Advent Calendar is a BBS door program that displays interactive AN
    ./advent --path "$DROPFILE_PATH"
    ```
 
-4. **Configure Your BBS**
-   - Add door menu entry pointing to `advent.sh`
-   - Ensure your BBS creates `door32.sys` files in the temp directory
-   - Set ANSI emulation requirement
-
 ## Configuration
 
-### config.yaml
-```yaml
-app:
-  timeout_idle: "5m"      # User idle timeout
-  timeout_max: "120m"     # Maximum session time
+The door uses sensible defaults and doesn't require a configuration file. All settings can be controlled via command-line flags:
 
-display:
-  mode: "cp437"           # cp437 for BBS, utf8 for local testing
-  
-bbs:
-  socket_host: "127.0.0.1"  # Change to your BBS server IP if needed
-  emulation_required: 1     # Requires ANSI support
-
-art:
-  base_dir: "art"         # Relative to door executable
-```
+- **Timeout**: Hard-coded to 5 minutes idle, 2 hours maximum
+- **Art directory**: Hard-coded to `art/` subdirectory  
+- **Socket host**: Use `--socket-host` flag (default: 127.0.0.1)
+- **Display mode**: Use `--local` flag for UTF-8 mode (BBS mode is default)
 
 ## Testing
 
@@ -149,14 +82,14 @@ advent.exe --local --debug-disable-date --debug-date=2024-12-15
 - Ensure ANSI emulation is enabled in BBS
 
 **Connection issues:**
-- Check `socket_host` in config.yaml matches your BBS server
+- Use `--socket-host` flag to specify your BBS server IP if not localhost
 - Verify firewall allows connections
 - Check BBS logs for socket errors
 
 ### Debug Mode
 Add debug flags to your launch script for troubleshooting:
 ```
-advent.exe --path "%DROPFILE_PATH%" --debug-disable-date --debug-date=2024-12-15
+advent.exe --path "%DROPFILE_PATH%" --socket-host "192.168.1.100" --debug-disable-date --debug-date=2024-12-15
 ```
 
 ## Art File Requirements

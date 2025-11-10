@@ -8,7 +8,7 @@ This is a Go-based BBS door program that displays ANSI art advent calendars. It'
 ### Core Design Pattern
 - **Modular architecture**: Clean separation between `cmd/advent/main.go` (entry point) and `internal/*` packages
 - **Dual I/O handling**: Raw CP437 for BBS connections, UTF-8 conversion for local terminals
-- **Configuration-driven**: YAML config in `config/config.yaml` with CLI flag overrides
+- **CLI-driven**: All configuration via command-line flags with sensible defaults
 - **Cross-platform BBS integration**: Windows socket inheritance vs Unix STDIN/STDOUT
 
 ### Critical BBS Integration (`internal/bbs/`)
@@ -74,10 +74,10 @@ type State struct {
 
 **Critical Logic**: Users can only view art up to current date - future dates show "COMEBACK.ANS"
 
-### Configuration Precedence
-1. CLI flags override config file
-2. `config/config.yaml` provides defaults
-3. Environment-specific settings in `display.mode` ("cp437" vs "utf8")
+### Configuration Approach
+1. **Hard-coded defaults**: 5min timeout, "art/" directory, 50MB cache
+2. **CLI flag overrides**: `--local`, `--socket-host`, `--path`, debug flags
+3. **No config file**: Eliminates complexity, uses sensible BBS door defaults
 
 ### Error Handling Patterns
 - **Missing art**: Shows `MISSING.ANS` with filename in bottom-right corner

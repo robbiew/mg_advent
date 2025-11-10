@@ -12,7 +12,6 @@ import (
 
 	"github.com/robbiew/advent/internal/art"
 	"github.com/robbiew/advent/internal/bbs"
-	"github.com/robbiew/advent/internal/config"
 	"github.com/robbiew/advent/internal/display"
 	"github.com/robbiew/advent/internal/input"
 	"github.com/robbiew/advent/internal/navigation"
@@ -22,8 +21,8 @@ import (
 
 var (
 	// Command line flags
-	configPath   = flag.String("config", "", "path to config file")
 	localMode    = flag.Bool("local", false, "run in local UTF-8 mode")
+	socketHost   = flag.String("socket-host", "127.0.0.1", "BBS server IP address")
 	debugDate    = flag.String("debug-date", "", "override date (YYYY-MM-DD)")
 	disableDate  = flag.Bool("debug-disable-date", false, "disable date validation")
 	disableArt   = flag.Bool("debug-disable-art", false, "disable art validation")
@@ -33,54 +32,47 @@ var (
 func main() {
 	flag.Parse()
 
-	// Load configuration
-	cfg, err := config.Load(*configPath)
-	if err != nil {
-		logrus.WithError(err).Fatal("Failed to load configuration")
-	}
+	// Setup logging (simplified)
+	logrus.SetLevel(logrus.InfoLevel)
+	logrus.SetFormatter(&logrus.TextFormatter{})
 
-	// Override config with command line flags
+	// Determine display mode
+	displayMode := display.ModeCP437
 	if *localMode {
-		cfg.Display.Mode = "cp437_local"
-	}
-	if *dropfilePath != "" {
-		cfg.BBS.DropfilePath = *dropfilePath
+		displayMode = display.ModeUTF8
 	}
 
-	// Setup logging
-	setupLogging(cfg)
-
-	// Initialize components
+	// Initialize components with hard-coded sensible defaults
 	displayEngine := display.NewDisplayEngine(display.DisplayConfig{
-		Mode:   cfg.Display.GetDisplayMode(),
+		Mode:   displayMode,
 		Width:  80, // Default, will be detected
 		Height: 25, // Default, will be detected
-		Theme:  cfg.Display.Theme,
+		Theme:  "classic",
 		Scrolling: display.ScrollingConfig{
-			Enabled:           cfg.Display.Scrolling.Enabled,
-			Indicators:        cfg.Display.Scrolling.Indicators,
-			KeyboardShortcuts: cfg.Display.Scrolling.KeyboardShortcuts,
+			Enabled:           true,
+			Indicators:        false,
+			KeyboardShortcuts: true,
 		},
 		Columns: display.ColumnConfig{
-			Handle80ColumnIssue: cfg.Display.Columns.Handle80ColumnIssue,
-			AutoDetectWidth:     cfg.Display.Columns.AutoDetectWidth,
+			Handle80ColumnIssue: true,
+			AutoDetectWidth:     true,
 		},
 		Performance: display.PerformanceConfig{
-			CacheEnabled: cfg.Display.Performance.CacheEnabled,
-			CacheSizeMB:  cfg.Display.Performance.CacheSizeMB,
-			PreloadLines: cfg.Display.Performance.PreloadLines,
+			CacheEnabled: true,
+			CacheSizeMB:  50,
+			PreloadLines: 100,
 		},
 	})
 
-	artManager := art.NewManager(cfg.Art.BaseDir)
-	navigator := navigation.NewNavigator(cfg.Art.BaseDir)
-	validator := validation.NewValidator(cfg.Art.BaseDir)
+	artManager := art.NewManager("art")
+	navigator := navigation.NewNavigator("art")
+	validator := validation.NewValidator("art")
 	// Create BBS connection - this is REQUIRED for Windows BBS doors
 	// All output must go through the inherited socket handle, not stdout
 	var bbsConn *bbs.BBSConnection
 	if *dropfilePath != "" {
 		var connErr error
-		bbsConn, connErr = bbs.NewBBSConnection(*dropfilePath, cfg.BBS.SocketHost)
+		bbsConn, connErr = bbs.NewBBSConnection(*dropfilePath, *socketHost)
 		if connErr != nil {
 			logrus.WithError(connErr).Fatal("Failed to create BBS connection - door cannot function without it")
 		}
@@ -96,8 +88,8 @@ func main() {
 	if bbsConn != nil {
 		logrus.Info("BBS connection available - display output will be handled by modified display engine")
 	} // Initialize session manager
-	idleTimeout, _ := time.ParseDuration(cfg.App.TimeoutIdle)
-	maxTimeout, _ := time.ParseDuration(cfg.App.TimeoutMax)
+	idleTimeout := 5 * time.Minute  // Hard-coded 5 minute idle timeout
+	maxTimeout := 120 * time.Minute // Hard-coded 2 hour max timeout
 
 	var sessionManager *session.Manager
 	sessionManager = session.NewManager(idleTimeout, maxTimeout,
@@ -113,28 +105,28 @@ func main() {
 		})
 
 	// Get user information
-	user := getUserInfo(*localMode, cfg)
+	user := getUserInfo(*localMode)
 
-	// Detect terminal size
+	// Detect terminal size and update display engine
 	width, height := detectTerminalSize()
 	displayEngine = display.NewDisplayEngine(display.DisplayConfig{
-		Mode:   cfg.Display.GetDisplayMode(),
+		Mode:   displayMode,
 		Width:  width,
 		Height: height,
-		Theme:  cfg.Display.Theme,
+		Theme:  "classic",
 		Scrolling: display.ScrollingConfig{
-			Enabled:           cfg.Display.Scrolling.Enabled,
-			Indicators:        cfg.Display.Scrolling.Indicators,
-			KeyboardShortcuts: cfg.Display.Scrolling.KeyboardShortcuts,
+			Enabled:           true,
+			Indicators:        false,
+			KeyboardShortcuts: true,
 		},
 		Columns: display.ColumnConfig{
-			Handle80ColumnIssue: cfg.Display.Columns.Handle80ColumnIssue,
-			AutoDetectWidth:     cfg.Display.Columns.AutoDetectWidth,
+			Handle80ColumnIssue: true,
+			AutoDetectWidth:     true,
 		},
 		Performance: display.PerformanceConfig{
-			CacheEnabled: cfg.Display.Performance.CacheEnabled,
-			CacheSizeMB:  cfg.Display.Performance.CacheSizeMB,
-			PreloadLines: cfg.Display.Performance.PreloadLines,
+			CacheEnabled: true,
+			CacheSizeMB:  50,
+			PreloadLines: 100,
 		},
 	})
 
@@ -204,32 +196,7 @@ func main() {
 	runMainLoop(displayEngine, artManager, navigator, inputHandler, sessionManager, initialState, user)
 }
 
-func setupLogging(cfg *config.Config) {
-	// Configure logrus based on config
-	switch cfg.Logging.Level {
-	case "debug":
-		logrus.SetLevel(logrus.DebugLevel)
-	case "info":
-		logrus.SetLevel(logrus.InfoLevel)
-	case "warn":
-		logrus.SetLevel(logrus.WarnLevel)
-	case "error":
-		logrus.SetLevel(logrus.ErrorLevel)
-	default:
-		logrus.SetLevel(logrus.InfoLevel)
-	}
-
-	// Set format
-	if cfg.Logging.Format == "json" {
-		logrus.SetFormatter(&logrus.JSONFormatter{})
-	} else {
-		logrus.SetFormatter(&logrus.TextFormatter{})
-	}
-
-	logrus.Info("Logging initialized")
-}
-
-func getUserInfo(localMode bool, cfg *config.Config) display.User {
+func getUserInfo(localMode bool) display.User {
 	if localMode {
 		logrus.Info("Running in local mode")
 		return display.User{
@@ -248,7 +215,7 @@ func getUserInfo(localMode bool, cfg *config.Config) display.User {
 	logrus.Info("Running in BBS mode")
 
 	if *dropfilePath != "" {
-		door32Info, err := bbs.ParseDoor32(*dropfilePath, cfg.BBS.SocketHost)
+		door32Info, err := bbs.ParseDoor32(*dropfilePath, *socketHost)
 		if err != nil {
 			logrus.WithError(err).Warn("Failed to parse door32.sys, using defaults")
 		} else {

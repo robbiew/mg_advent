@@ -15,6 +15,9 @@ cd /opt/bbs/doors/advent
 # BBS door32.sys location - adjust path for your BBS
 DROPFILE_PATH="/opt/bbs/temp/${NODE}/door32.sys"
 
+# BBS server IP (change if BBS runs on different server)
+BBS_HOST="127.0.0.1"
+
 # Log the launch
 echo "[$(date)] Node ${NODE} - Starting Advent Calendar Door" >> advent_door.log
 
@@ -29,7 +32,7 @@ fi
 
 # Launch the door
 echo "[$(date)] Using door32.sys: $DROPFILE_PATH" >> advent_door.log
-./advent --path "$DROPFILE_PATH"
+./advent --path "$DROPFILE_PATH" --socket-host "$BBS_HOST"
 
 # Log completion
 echo "[$(date)] Node ${NODE} - Door session ended" >> advent_door.log
