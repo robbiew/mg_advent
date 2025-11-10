@@ -3,12 +3,10 @@ package bbs
 import (
 	"fmt"
 	"io"
-	"os"
 	"regexp"
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"golang.org/x/term"
 )
 
 // DetectTerminalSize queries the terminal for its actual size using ANSI escape sequences
@@ -16,6 +14,14 @@ import (
 // Returns (width, height, error)
 func DetectTerminalSize(writer io.Writer, reader io.Reader) (int, int, error) {
 	logrus.Debug("Detecting terminal size using cursor positioning method")
+
+	// Helper function to flush buffered writers
+	flushWriter := func() error {
+		if flusher, ok := writer.(interface{ Flush() error }); ok {
+			return flusher.Flush()
+		}
+		return nil
+	}
 
 	// Step 1: Save current cursor position
 	_, err := writer.Write([]byte("\033[s")) // Save cursor position
@@ -34,6 +40,13 @@ func DetectTerminalSize(writer io.Writer, reader io.Reader) (int, int, error) {
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to send CPR query: %w", err)
 	}
+
+	// CRITICAL: Flush buffered output before reading response
+	// This is essential for Linux STDIO connections using bufio.Writer
+	if err := flushWriter(); err != nil {
+		return 0, 0, fmt.Errorf("failed to flush output: %w", err)
+	}
+	logrus.Debug("Flushed output buffer before reading CPR response")
 
 	// Read response with timeout
 	response := make([]byte, 32)
@@ -83,6 +96,7 @@ func DetectTerminalSize(writer io.Writer, reader io.Reader) (int, int, error) {
 
 	// Step 4: Restore cursor position
 	writer.Write([]byte("\033[u")) // Restore cursor position
+	flushWriter()                  // Ensure cursor restore is sent
 
 	logrus.WithFields(logrus.Fields{
 		"width":  cols,
@@ -110,34 +124,14 @@ func (c *BBSConnection) DetectTerminalSize() (int, int, error) {
 		return DetectTerminalSize(writer, reader)
 
 	case ConnectionStdio:
-		// STDIO needs raw mode for ANSI query to work
-		// Check if stdin is a terminal
-		if !term.IsTerminal(int(os.Stdin.Fd())) {
-			return 0, 0, fmt.Errorf("stdin is not a terminal (BBS pipe/socket mode)")
-		}
+		// Linux BBS mode - uses STDIN/STDOUT pipes, no raw mode needed
+		// The BBS handles the terminal and forwards ANSI queries to the user's terminal
+		logrus.Debug("Linux BBS mode (STDIO pipes) - using buffered I/O for size detection")
 
-		// Save current terminal state
-		oldState, err := term.GetState(int(os.Stdin.Fd()))
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed to get terminal state: %w", err)
-		}
-
-		// Make terminal raw for the query
-		_, err = term.MakeRaw(int(os.Stdin.Fd()))
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed to make terminal raw: %w", err)
-		}
-
-		// Ensure we restore terminal state
-		defer func() {
-			if restoreErr := term.Restore(int(os.Stdin.Fd()), oldState); restoreErr != nil {
-				logrus.WithError(restoreErr).Warn("Failed to restore terminal state")
-			}
-		}()
-
-		// Use os.Stdin/Stdout directly for raw reads
-		writer = os.Stdout
-		reader = os.Stdin
+		// Use the buffered readers/writers from BBSConnection
+		// The BBS will forward ANSI escape sequences to the user's terminal and back
+		writer = c.stdoutWriter
+		reader = c.stdinReader
 
 		return DetectTerminalSize(writer, reader)
 

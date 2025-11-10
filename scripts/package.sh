@@ -2,6 +2,7 @@
 
 # Package script for Mistigris Advent Calendar GitHub releases
 # Creates release archives for Windows 32-bit, Linux x86_64, and Linux ARM64
+# Note: Art assets are embedded in the binary, no external art files needed
 #
 # Usage: ./package.sh
 # Output: Creates .zip and .tar.gz archives in dist/releases/
@@ -13,7 +14,6 @@ echo "Packaging Mistigris Advent Calendar for release..."
 # Configuration
 OUTPUT_DIR="dist"
 RELEASE_DIR="dist/releases"
-ART_DIR="art"
 
 # Platform configurations: "platform-name:binary-name:archive-format"
 PLATFORMS=(
@@ -26,8 +26,10 @@ PLATFORMS=(
 COMMON_FILES=(
     "LICENSE"
     "QUICKSTART.md"
+    "INSTALLATION.md"
+    "README.md"
     "dist/FILE_ID.ANS"
-    "dist/INFOFILE.ANS"
+    "dist/INFOFILE.ANS" 
     "dist/MEMBERS.ANS"
 )
 
@@ -76,12 +78,7 @@ create_package() {
         cp "$file" "$temp_dir/"
     done
     
-    # Copy art directory
-    if [ ! -d "$ART_DIR" ]; then
-        echo "ERROR: Art directory not found at $ART_DIR"
-        exit 1
-    fi
-    cp -r "$ART_DIR" "$temp_dir/"
+    # Note: Art assets are now embedded in the binary, no external art directory needed
     
     # Create archive based on format
     cd "$RELEASE_DIR"
@@ -142,6 +139,8 @@ ls -lh "${RELEASE_DIR}/"*.{zip,tar.gz} 2>/dev/null || echo "No archives created"
 
 echo ""
 echo "To create a GitHub release:"
-echo "  1. Create a new tag: git tag -a v1.0.0 -m 'Release v1.0.0'"
-echo "  2. Push the tag: git push origin v1.0.0"
-echo "  3. Upload files from ${RELEASE_DIR}/ to the GitHub release page"
+echo "  1. Use the release script: ./scripts/release.sh v2.0.0 'Release notes'"
+echo "  2. Or manually:"
+echo "     - Create a new tag: git tag -a v2.0.0 -m 'Release v2.0.0'"
+echo "     - Push the tag: git push origin v2.0.0"
+echo "     - Upload files from ${RELEASE_DIR}/ to the GitHub release page"

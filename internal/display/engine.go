@@ -115,20 +115,45 @@ func (de *DisplayEngine) SetBBSConnection(bbsConn io.Writer) {
 
 // Display displays the content of an ANSI file
 func (de *DisplayEngine) Display(filePath string, user User) error {
-	return de.DisplayWithOverlay(filePath, user, "")
+	err := de.DisplayWithOverlay(filePath, user, "")
+	// Flush output to ensure content is sent to terminal (critical for buffered BBS connections)
+	de.flushOutput()
+	return err
+}
+
+// flushOutput flushes buffered output if the writer supports it
+func (de *DisplayEngine) flushOutput() {
+	if flusher, ok := de.output.(interface{ Flush() error }); ok {
+		if err := flusher.Flush(); err != nil {
+			log.Printf("Warning: Failed to flush output: %v", err)
+		}
+	}
 }
 
 // DisplayWithOverlay displays the content of an ANSI file with optional overlay text
 func (de *DisplayEngine) DisplayWithOverlay(filePath string, user User, overlayText string) error {
 	de.output.Write([]byte(Reset)) // Reset text and background colors
+	de.flushOutput()               // Ensure reset is sent
 	de.ClearScreen()
 
 	// Load and process content
 	content, err := de.loadAndProcess(filePath)
 	if err != nil {
-		log.Printf("ERROR: Failed to load file %s: %v", filePath, err)
-		de.output.Write([]byte("Error: Unable to load art. Please contact the Sysop.\r\n"))
-		return err
+		// Silently fallback to MISSING.ANS when art file is not found
+		missingPath := "art/common/MISSING.ANS"
+		var fallbackErr error
+		content, fallbackErr = de.loadAndProcess(missingPath)
+		if fallbackErr != nil {
+			// Only show error if MISSING.ANS itself is missing
+			log.Printf("ERROR: Failed to load MISSING.ANS fallback: %v", fallbackErr)
+			de.output.Write([]byte("Error: Unable to load art. Please contact the Sysop.\r\n"))
+			return err
+		}
+		// Add filename to overlay to show which file was missing
+		if overlayText == "" {
+			// Strip "art/" prefix for cleaner display
+			overlayText = strings.TrimPrefix(filePath, "art/")
+		}
 	}
 
 	if len(content) == 0 {
@@ -332,6 +357,7 @@ func (de *DisplayEngine) renderVisibleLines(lines []string) error {
 	}
 
 	// Don't show scroll indicators - removed to save screen space
+	de.flushOutput() // Ensure visible lines are sent to terminal
 
 	return nil
 }
@@ -377,6 +403,7 @@ func (de *DisplayEngine) updateScrollState() {
 func (de *DisplayEngine) ClearScreen() error {
 	de.output.Write([]byte(EraseScreen))
 	de.MoveCursor(0, 0)
+	de.flushOutput() // Ensure clear screen is sent immediately
 	return nil
 }
 

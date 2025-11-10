@@ -239,7 +239,7 @@ func main() {
 	}
 	defer inputHandler.Close()
 
-	// Hide cursor and clear screen
+	// Hide cursor and clear screen for both BBS and local modes
 	displayEngine.HideCursor()
 	displayEngine.ClearScreen()
 	defer displayEngine.ShowCursor() // Ensure cursor is shown on exit
@@ -492,6 +492,13 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 
 		// Handle navigation
 		var direction navigation.Direction
+
+		// Handle RETURN key on WELCOME screen to navigate to current day (same as arrow right)
+		if currentState.Screen == navigation.ScreenWelcome && (char == '\r' || char == '\n') {
+			direction = navigation.DirRight
+			logrus.Info("RETURN pressed on WELCOME - navigating to current day")
+		}
+
 		switch key {
 		case input.KeyArrowRight:
 			direction = navigation.DirRight
@@ -542,6 +549,6 @@ func cleanup(displayEngine *display.DisplayEngine, inputHandler *input.InputHand
 	sessionManager.Stop()
 	inputHandler.Close()
 	displayEngine.ShowCursor()
-	displayEngine.ClearScreen()
-	fmt.Print("\033[0m") // Reset colors
+	displayEngine.ClearScreen() // ClearScreen already flushes
+	fmt.Print("\033[0m")        // Reset colors
 }

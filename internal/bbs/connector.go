@@ -182,8 +182,8 @@ func ParseDoor32(dropfilePath, socketHost string) (*Door32Info, error) {
 		return nil, fmt.Errorf("invalid node number (line 11): %s", lines[10])
 	}
 
-	// Parse socket information if it's a telnet connection
-	if info.LineType == 2 {
+	// Parse socket information if it's a telnet connection (Windows only)
+	if info.LineType == 2 && runtime.GOOS == "windows" {
 		socketInfo, err := parseWindowsDropfile(dropfilePath, socketHost)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse socket info: %w", err)

@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"path" // Use path instead of filepath for embedded FS (always forward slashes)
 	"strconv"
-	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -72,7 +71,9 @@ func (n *Navigator) GetAvailableYears() ([]int, error) {
 		if entry.IsDir() {
 			year, err := strconv.Atoi(entry.Name())
 			if err == nil && year >= 2023 && year <= 2030 { // Reasonable year range
+				// Include all year directories - missing art will show MISSING.ANS
 				years = append(years, year)
+				logrus.WithField("year", year).Debug("Found year directory")
 			}
 		}
 	}
@@ -249,34 +250,21 @@ func (n *Navigator) GetInitialState() (State, error) {
 		return State{}, fmt.Errorf("no art years available")
 	}
 
-	// Use current year if available, otherwise latest (newest)
-	currentYear := time.Now().Year()
-	var selectedYear int
-	for _, year := range years {
-		if year == currentYear {
-			selectedYear = year
-			break
-		}
-	}
-	if selectedYear == 0 {
-		// Use newest available year (last in ascending sorted list)
-		selectedYear = years[len(years)-1]
-	}
+	// Always use the newest available year (last in ascending sorted list)
+	// This ensures we default to the current advent season regardless of system date
+	selectedYear := years[len(years)-1]
+
+	logrus.WithFields(logrus.Fields{
+		"availableYears": years,
+		"selectedYear":   selectedYear,
+	}).Info("Selected initial year")
 
 	// Calculate max day for the year
 	maxDay := n.calculateMaxDay(selectedYear)
 
-	// Current day is today, but capped at maxDay
-	currentDay := time.Now().YearDay()
-	if selectedYear != time.Now().Year() {
-		currentDay = 1 // Default to first day for past/future years
-	}
-	if currentDay > maxDay {
-		currentDay = maxDay
-	}
-	if currentDay > 25 {
-		currentDay = 25
-	}
+	// For advent calendar, we always start at day 1
+	// The maxDay calculation will handle whether future days are accessible
+	currentDay := 1
 
 	state := State{
 		CurrentYear:    selectedYear,
@@ -291,19 +279,10 @@ func (n *Navigator) GetInitialState() (State, error) {
 
 // calculateMaxDay calculates the maximum available day for a year
 func (n *Navigator) calculateMaxDay(year int) int {
-	now := time.Now()
-	if year < now.Year() {
-		return 25 // Past years have all days
-	} else if year > now.Year() {
-		return 1 // Future years only have day 1
-	} else {
-		// Current year
-		maxDay := now.YearDay()
-		if maxDay > 25 {
-			maxDay = 25
-		}
-		return maxDay
-	}
+	// For testing/demo purposes or when year directories exist without full content,
+	// we allow navigation through all 25 days regardless of current date
+	// Missing art will show MISSING.ANS fallback
+	return 25
 }
 
 // getDayArtPath returns the path to a day's art file
@@ -365,4 +344,31 @@ func (n *Navigator) LogState(state State) {
 		"screen": state.Screen,
 		"maxDay": state.MaxDay,
 	}).Debug("Navigation state")
+}
+
+// validateYearHasArt checks if a year directory contains at least some daily art files
+func (n *Navigator) validateYearHasArt(year int) bool {
+	yearDir := path.Join(n.baseArtDir, strconv.Itoa(year))
+
+	// Check if year directory exists
+	if _, err := fs.Stat(n.fs, yearDir); err != nil {
+		return false
+	}
+
+	// Look for at least one daily art file to consider the year valid
+	// Check for day 1 as a basic validation
+	fileName := fmt.Sprintf("1_DEC%s.ANS", strconv.Itoa(year)[2:])
+	filePath := path.Join(yearDir, fileName)
+
+	if _, err := fs.Stat(n.fs, filePath); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"year": year,
+			"file": fileName,
+			"path": filePath,
+		}).Debug("Year validation failed - missing day 1 art file")
+		return false
+	}
+
+	logrus.WithField("year", year).Debug("Year validation passed")
+	return true
 }

@@ -2,13 +2,14 @@
 
 # GitHub Release Script for Mistigris Advent Calendar
 # Creates a GitHub release and uploads all packaged archives
+# Note: 2025+ versions use embedded assets (no external art directory needed)
 #
 # Prerequisites: 
 #   - GitHub CLI (gh) installed and authenticated
 #   - Archives built using package.sh
 #
-# Usage: ./release.sh <version> [release-notes]
-# Example: ./release.sh v1.0.0 "Initial release with 2023-2025 calendars"
+# Usage: ./release.sh <version> [release-notes]  
+# Example: ./release.sh v2.0.0 "2025 modernized release with embedded assets and multi-year support"
 
 set -e
 
@@ -21,9 +22,9 @@ if [ $# -lt 1 ]; then
     echo "Usage: $0 <version> [release-notes]"
     echo ""
     echo "Examples:"
-    echo "  $0 v1.0.0"
-    echo "  $0 v1.0.0 'Initial release with 2023-2025 calendars'"
-    echo "  $0 v1.1.0 'Added new features and bug fixes'"
+    echo "  $0 v2.0.0"
+    echo "  $0 v2.0.0 '2025 modernized release with embedded assets and multi-year support'"
+    echo "  $0 v2.1.0 'Bug fixes and performance improvements'"
     echo ""
     echo "Note: Version should start with 'v' (e.g., v1.0.0)"
     exit 1

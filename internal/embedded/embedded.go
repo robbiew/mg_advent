@@ -5,6 +5,7 @@ import (
 )
 
 // ArtFS contains all embedded art files
+// Includes .gitkeep files to ensure empty year directories are embedded
 //
-//go:embed art/**/*.ANS
+//go:embed art
 var ArtFS embed.FS
