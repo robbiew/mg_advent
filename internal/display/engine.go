@@ -3,7 +3,6 @@ package display
 import (
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"os"
 	"strings"
@@ -68,17 +67,6 @@ func (dmw *DualModeWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// WriteSysopOnly writes data only to the sysop console (not to BBS connection)
-func (dmw *DualModeWriter) WriteSysopOnly(p []byte) (n int, err error) {
-	if dmw.consoleWriter != nil {
-		// Write UTF-8 directly to sysop console (no CP437 conversion needed for status text)
-		if _, err = dmw.consoleWriter.Write(p); err != nil {
-			return
-		}
-	}
-	return len(p), nil
-}
-
 // convertCP437ToUTF8 converts CP437 encoded bytes to UTF-8
 func convertCP437ToUTF8(data []byte) []byte {
 	// Use the same charmap.CodePage437 decoder as in processCP437
@@ -99,13 +87,10 @@ type DisplayEngine struct {
 	cache          map[string][]string
 	currentContent []string  // Store current content for scrolling re-renders
 	output         io.Writer // Output destination (console, BBS, or both)
-	user           *User     // Current user information for sysop status bar
-	isBBSMode      bool      // Whether running in BBS mode (affects sysop bar display)
-	fs             fs.FS     // Embedded filesystem for art files
 }
 
 // NewDisplayEngine creates a new display engine
-func NewDisplayEngine(config DisplayConfig, embeddedFS fs.FS) *DisplayEngine {
+func NewDisplayEngine(config DisplayConfig) *DisplayEngine {
 	return &DisplayEngine{
 		config:       config,
 		themeManager: NewThemeManager(),
@@ -116,39 +101,29 @@ func NewDisplayEngine(config DisplayConfig, embeddedFS fs.FS) *DisplayEngine {
 			VisibleLines: config.Height,
 		},
 		output: os.Stdout, // Default to stdout only
-		fs:     embeddedFS,
 	}
 }
 
 // SetBBSConnection configures dual output to both console and BBS connection
 // Following OpenDoors pattern: ODComSendBuffer() + ODScrnDisplayString()
 // Console gets CP437->UTF8 conversion, BBS gets raw CP437
-// On Linux, we only write to BBS connection (no separate sysop console)
 func (de *DisplayEngine) SetBBSConnection(bbsConn io.Writer) {
 	if bbsConn != nil {
-		// On Linux/Unix, only write to BBS connection (no dual output)
-		// Dual output is only for Windows where sysop has separate console
-		de.output = bbsConn
-		de.isBBSMode = true
+		// Create DualModeWriter: console (CP437->UTF8) + BBS (raw CP437)
+		de.output = NewDualModeWriter(os.Stdout, bbsConn)
 	} else {
 		// Fall back to console only
 		de.output = os.Stdout
-		de.isBBSMode = false
 	}
 }
 
-// SetUser sets the current user information for the sysop status bar
-func (de *DisplayEngine) SetUser(user User) {
-	de.user = &user
-}
-
 // Display displays the content of an ANSI file
-func (de *DisplayEngine) Display(filePath string) error {
-	return de.DisplayWithOverlay(filePath, "")
+func (de *DisplayEngine) Display(filePath string, user User) error {
+	return de.DisplayWithOverlay(filePath, user, "")
 }
 
 // DisplayWithOverlay displays the content of an ANSI file with optional overlay text
-func (de *DisplayEngine) DisplayWithOverlay(filePath string, overlayText string) error {
+func (de *DisplayEngine) DisplayWithOverlay(filePath string, user User, overlayText string) error {
 	de.output.Write([]byte(Reset)) // Reset text and background colors
 	de.ClearScreen()
 
@@ -181,12 +156,6 @@ func (de *DisplayEngine) DisplayWithOverlay(filePath string, overlayText string)
 		de.renderOverlayText(overlayText)
 	}
 
-	// Render sysop status bar (console only)
-	de.renderSysopStatusBar()
-
-	// Flush any buffered output
-	de.Flush()
-
 	return err
 }
 
@@ -210,82 +179,15 @@ func (de *DisplayEngine) renderOverlayText(text string) {
 
 	// Restore cursor position
 	de.output.Write([]byte("\0338")) // Restore cursor position (ESC 8)
-}
-
-// renderSysopStatusBar renders a status bar at the bottom for sysop monitoring
-func (de *DisplayEngine) renderSysopStatusBar() {
-	if !de.isBBSMode || de.user == nil {
-		return // Only show status bar in BBS mode with user info
-	}
-
-	// Cast output to DualModeWriter to access sysop-only output
-	if dmw, ok := de.output.(*DualModeWriter); ok {
-		// Create classic DOS-style status bar content
-		statusContent := fmt.Sprintf("▌ User: %-20s Node: %d  Time: %s  Emulation: %s",
-			de.user.Alias,
-			de.user.NodeNum,
-			formatTimeLeft(de.user.TimeLeft),
-			getEmulationName(de.user.Emulation))
-
-		// Ensure the status bar fills exactly 80 columns (or config width)
-		screenWidth := de.config.Width
-		if screenWidth == 0 {
-			screenWidth = 80 // Default to 80 columns
-		}
-
-		// Create full-width status line with proper padding
-		var statusLine string
-		if len(statusContent) > screenWidth-2 {
-			// Truncate if too long, leaving space for end frame
-			statusLine = statusContent[:screenWidth-5] + "... ▐"
-		} else {
-			// Pad to full width with spaces, then add end frame
-			padding := screenWidth - len(statusContent) - 2 // Reserve space for " ▐"
-			statusLine = statusContent + strings.Repeat(" ", padding) + " ▐"
-		}
-
-		// Position at bottom of screen and write full-width status bar
-		statusBar := fmt.Sprintf("\033[25;1H\033[30;47m%-*s\033[0m", screenWidth, statusLine)
-		dmw.WriteSysopOnly([]byte(statusBar))
-	}
-}
-
-// formatTimeLeft formats time duration for display
-func formatTimeLeft(duration time.Duration) string {
-	minutes := int(duration.Minutes())
-	if minutes > 60 {
-		hours := minutes / 60
-		mins := minutes % 60
-		return fmt.Sprintf("%dh%02dm", hours, mins)
-	}
-	return fmt.Sprintf("%dm", minutes)
-}
-
-// getEmulationName returns human-readable emulation name
-func getEmulationName(emulation int) string {
-	switch emulation {
-	case 0:
-		return "TTY"
-	case 1:
-		return "ANSI"
-	case 2:
-		return "Avatar"
-	case 3:
-		return "RIP"
-	default:
-		return fmt.Sprintf("Unknown(%d)", emulation)
-	}
-}
-
-// loadAndProcess loads and processes the file content
+} // loadAndProcess loads and processes the file content
 func (de *DisplayEngine) loadAndProcess(filePath string) ([]string, error) {
 	// Check cache first
 	if cached, exists := de.cache[filePath]; exists {
 		return cached, nil
 	}
 
-	// Load file from embedded filesystem
-	content, err := fs.ReadFile(de.fs, filePath)
+	// Load file
+	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, err
 	}
@@ -319,14 +221,7 @@ func (de *DisplayEngine) loadAndProcess(filePath string) ([]string, error) {
 // processUTF8 processes UTF-8 content
 func (de *DisplayEngine) processUTF8(content []byte) []string {
 	noSauce := trimStringFromSauce(string(content))
-	lines := strings.Split(noSauce, "\r\n")
-
-	// Remove trailing empty lines to prevent extra blank lines at bottom
-	for len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-
-	return lines
+	return strings.Split(noSauce, "\r\n")
 }
 
 // processCP437 processes CP437 content with UTF-8 conversion (for local mode)
@@ -349,11 +244,6 @@ func (de *DisplayEngine) processCP437(content []byte) []string {
 		converted[i] = utf8Line
 	}
 
-	// Remove trailing empty lines to prevent extra blank lines at bottom
-	for len(converted) > 0 && converted[len(converted)-1] == "" {
-		converted = converted[:len(converted)-1]
-	}
-
 	return converted
 }
 
@@ -364,17 +254,33 @@ func (de *DisplayEngine) applyTerminalFixes(line string) string {
 	return line
 }
 
-// processCP437Raw processes CP437 content without conversion (for BBS mode)
-func (de *DisplayEngine) processCP437Raw(content []byte) []string {
+// processCP437WithEnhancedConversion provides enhanced CP437 to UTF-8 conversion
+// with special handling for macOS Terminal compatibility
+func (de *DisplayEngine) processCP437WithEnhancedConversion(content []byte) []string {
 	noSauce := trimStringFromSauce(string(content))
 	lines := strings.Split(noSauce, "\r\n")
 
-	// Remove trailing empty lines to prevent extra blank lines at bottom
-	for len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
+	converted := make([]string, len(lines))
+	for i, line := range lines {
+		// Convert from CP437 to UTF-8
+		utf8Line, err := charmap.CodePage437.NewDecoder().String(line)
+		if err != nil {
+			log.Printf("Error converting line to UTF-8: %v", err)
+			utf8Line = line // Fallback
+		}
+
+		// Additional processing for macOS Terminal compatibility
+		// Some terminals may need special character handling
+		converted[i] = utf8Line
 	}
 
-	return lines
+	return converted
+}
+
+// processCP437Raw processes CP437 content without conversion (for BBS mode)
+func (de *DisplayEngine) processCP437Raw(content []byte) []string {
+	noSauce := trimStringFromSauce(string(content))
+	return strings.Split(noSauce, "\r\n")
 }
 
 // handle80ColumnIssue handles the 80-column line break issue
@@ -427,9 +333,7 @@ func (de *DisplayEngine) renderWithScrolling(lines []string) error {
 	de.scrollState.CurrentLine = 0
 	de.updateScrollState()
 
-	err := de.renderVisibleLines(lines)
-	de.Flush() // Flush after rendering
-	return err
+	return de.renderVisibleLines(lines)
 }
 
 // renderVisibleLines renders the currently visible lines
@@ -466,9 +370,7 @@ func (de *DisplayEngine) ScrollUp() error {
 		de.updateScrollState()
 		// Re-render with new scroll position
 		if de.currentContent != nil {
-			err := de.renderVisibleLines(de.currentContent)
-			de.Flush() // Flush after scroll
-			return err
+			return de.renderVisibleLines(de.currentContent)
 		}
 	}
 	return nil
@@ -481,9 +383,7 @@ func (de *DisplayEngine) ScrollDown() error {
 		de.updateScrollState()
 		// Re-render with new scroll position
 		if de.currentContent != nil {
-			err := de.renderVisibleLines(de.currentContent)
-			de.Flush() // Flush after scroll
-			return err
+			return de.renderVisibleLines(de.currentContent)
 		}
 	}
 	return nil
@@ -498,6 +398,17 @@ func (de *DisplayEngine) GetScrollState() ScrollState {
 func (de *DisplayEngine) updateScrollState() {
 	de.scrollState.CanScrollUp = de.scrollState.CurrentLine > 0
 	de.scrollState.CanScrollDown = de.scrollState.CurrentLine < de.scrollState.TotalLines-de.config.Height
+}
+
+// showScrollIndicators shows scroll position indicators
+func (de *DisplayEngine) showScrollIndicators() {
+	if de.scrollState.TotalLines <= de.config.Height {
+		return
+	}
+
+	// Position indicator at bottom right
+	percentage := float64(de.scrollState.CurrentLine) / float64(de.scrollState.TotalLines-de.config.Height) * 100
+	de.output.Write([]byte(fmt.Sprintf("\033[%d;%dH[%d%%]", de.config.Height, de.config.Width-5, int(percentage))))
 }
 
 // ClearScreen clears the screen
@@ -532,14 +443,6 @@ func (de *DisplayEngine) HideCursor() {
 // ShowCursor shows the terminal cursor
 func (de *DisplayEngine) ShowCursor() {
 	de.output.Write([]byte(ShowCursor))
-}
-
-// Flush flushes any buffered output (important for BBS STDIO connections)
-func (de *DisplayEngine) Flush() {
-	// If output is a BBSConnection, flush it
-	if flusher, ok := de.output.(interface{ Flush() error }); ok {
-		flusher.Flush()
-	}
 }
 
 // ANSI escape sequences (extracted from original ansiart.go)
@@ -583,6 +486,16 @@ func trimStringFromSauce(s string) string {
 	if idx := strings.Index(s, "SAUCE00"); idx != -1 {
 		leftOfDelimiter := strings.Split(s, "SAUCE00")[0]
 		return trimLastChar(leftOfDelimiter)
+	}
+	return s
+}
+
+// trimMetadata trims metadata based on delimiters
+func trimMetadata(s string, delimiters ...string) string {
+	for _, delimiter := range delimiters {
+		if idx := strings.Index(s, delimiter); idx != -1 {
+			return trimLastChar(s[:idx])
+		}
 	}
 	return s
 }
