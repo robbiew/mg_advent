@@ -47,6 +47,12 @@ func DetectTerminalSize(writer io.Writer, reader io.Reader) (int, int, error) {
 
 	// Parse response: ESC[{row};{col}R
 	// Example: \033[25;80R means 25 rows, 80 columns
+
+	// Bounds check to prevent slice panic
+	if n < 0 || n > len(response) {
+		return 0, 0, fmt.Errorf("invalid response length: %d (buffer size: %d)", n, len(response))
+	}
+
 	responseStr := string(response[:n])
 	logrus.WithField("response", responseStr).Debug("Received CPR response")
 

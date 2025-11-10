@@ -81,7 +81,13 @@ func main() {
 		var connErr error
 		bbsConn, connErr = bbs.NewBBSConnection(*dropfilePath, *socketHost)
 		if connErr != nil {
-			logrus.WithError(connErr).Fatal("Failed to create BBS connection - door cannot function without it")
+			logrus.WithError(connErr).Error("Failed to create BBS connection - continuing in fallback mode")
+			fmt.Println("ERROR: Unable to establish BBS connection.")
+			fmt.Println("This door requires proper BBS integration to function.")
+			fmt.Printf("Error: %v\n", connErr)
+			fmt.Println("\nPress any key to exit...")
+			fmt.Scanln()
+			return
 		}
 		logrus.Info("BBS connection established - all I/O will go through inherited socket")
 	}
@@ -158,18 +164,25 @@ func main() {
 
 	// Validate terminal size
 	if err := validator.ValidateTerminalSize(width, height); err != nil {
-		logrus.WithError(err).Fatal("Terminal size validation failed")
+		logrus.WithError(err).Warn("Terminal size validation failed - continuing anyway")
+		fmt.Printf("WARNING: Terminal size %dx%d may not be optimal\n", width, height)
 	}
 
 	// Validate ANSI emulation
 	if err := validator.ValidateEmulation(user.Emulation); err != nil {
-		logrus.WithError(err).Fatal("ANSI emulation validation failed")
+		logrus.WithError(err).Warn("ANSI emulation validation failed - continuing anyway")
+		fmt.Printf("WARNING: Terminal emulation type %d may not be fully supported\n", user.Emulation)
 	}
 
 	// Get initial navigation state
 	initialState, err := navigator.GetInitialState()
 	if err != nil {
-		logrus.WithError(err).Fatal("Failed to get initial navigation state")
+		logrus.WithError(err).Error("Failed to get initial navigation state")
+		fmt.Println("ERROR: Unable to initialize door navigation.")
+		fmt.Printf("Error: %v\n", err)
+		fmt.Println("\nPress any key to exit...")
+		fmt.Scanln()
+		return
 	}
 
 	// Apply debug overrides
@@ -185,14 +198,25 @@ func main() {
 	// Validate art files
 	if !*disableArt {
 		if err := validator.ValidateArtFiles(initialState.CurrentYear); err != nil {
-			logrus.WithError(err).Fatal("Art file validation failed")
+			logrus.WithError(err).Error("Art file validation failed")
+			fmt.Println("ERROR: Required art files are missing.")
+			fmt.Printf("Error: %v\n", err)
+			fmt.Println("The door cannot function without proper art files.")
+			fmt.Println("\nPress any key to exit...")
+			fmt.Scanln()
+			return
 		}
 	}
 
 	// Apply date override if specified
 	if *debugDate != "" {
 		if err := applyDateOverride(&initialState, *debugDate); err != nil {
-			logrus.WithError(err).Fatal("Failed to apply date override")
+			logrus.WithError(err).Error("Failed to apply date override")
+			fmt.Printf("ERROR: Invalid debug date specified: %s\n", *debugDate)
+			fmt.Printf("Error: %v\n", err)
+			fmt.Println("\nPress any key to exit...")
+			fmt.Scanln()
+			return
 		}
 	}
 
@@ -202,7 +226,12 @@ func main() {
 
 	// Open input handler
 	if err := inputHandler.Open(); err != nil {
-		logrus.WithError(err).Fatal("Failed to open input handler")
+		logrus.WithError(err).Error("Failed to open input handler")
+		fmt.Println("ERROR: Unable to initialize user input system.")
+		fmt.Printf("Error: %v\n", err)
+		fmt.Println("\nPress any key to exit...")
+		fmt.Scanln()
+		return
 	}
 	defer inputHandler.Close()
 
@@ -272,18 +301,23 @@ func getUserInfo(localMode bool) display.User {
 }
 
 func detectTerminalSize(bbsConn *bbs.BBSConnection) (width, height int) {
-	// First try BBS connection ANSI query (most reliable for BBS environments)
-	if bbsConn != nil {
-		if w, h, err := bbsConn.DetectTerminalSize(); err == nil {
-			logrus.WithFields(logrus.Fields{
-				"width":  w,
-				"height": h,
-				"method": "BBS ANSI CPR query",
-			}).Info("Detected terminal size")
-			return w, h
-		} else {
-			logrus.WithError(err).Warn("BBS terminal size detection failed, trying term.GetSize fallback")
+	// Wrap in recovery to handle panics in terminal detection
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.WithField("panic", r).Error("Terminal size detection panicked - using fallback")
+			width, height = 80, 25 // Standard fallback
 		}
+	}()
+
+	// For BBS doors, use standard dimensions (following Talisman's approach)
+	// Most BBS systems assume 80x25 terminal dimensions - this is the industry standard
+	if bbsConn != nil {
+		logrus.WithFields(logrus.Fields{
+			"width":  80,
+			"height": 25,
+			"method": "BBS standard dimensions",
+		}).Info("Using standard BBS terminal size")
+		return 80, 25
 	}
 
 	// Fallback: Try to get terminal size from stdin (works for local mode)
