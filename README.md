@@ -1,6 +1,6 @@
 # MiSTiGRiS Advent Calendar
 
-**✨ UPDATED FOR 2025 ✨**
+## ✨ UPDATED FOR 2025 ✨
 
 <img src="images/WELCOME.png" alt="Welcome Screen" width="100%">
 
@@ -19,10 +19,12 @@ See [INSTALLATION.md](INSTALLATION.md) for complete setup instructions for Windo
 ## Building from Source
 
 ### Prerequisites
+
 - Go 1.24 or later
 - Git
 
 ### Build Steps
+
 ```bash
 # Clone repository
 git clone https://github.com/robbiew/mg_advent.git
@@ -38,6 +40,7 @@ build.bat
 This creates binaries in the `dist/` directory for multiple platforms.
 
 ### Development & Testing
+
 ```bash
 # Local testing (no BBS required), allows you to skip the current date restrictions:
 go run cmd/advent/main.go --local --debug-disable-date --debug-date=2024-12-15
@@ -47,10 +50,9 @@ go run cmd/advent/main.go --local --debug-disable-date --debug-date=2024-12-15
 
 This project is released under the terms specified in the LICENSE file.
 
-
 ## Recent Updates (2025)
 
-- **Windows 32 Support**: Beta testing socket inheritence in Go!
+- **Windows 32 Support**: Beta testing socket inheritence in Go! Note, "Sysop window" is blank for now
 - **Refactored Art Structure**: Separated year-independent screens into `art/common/` directory
 - **Art Bundled with Binary**: No more art/ dir needed, it's all compiled in at build-time
 - **Multi-Year Navigation**: Added numeric key selection (1, 2) to browse previous years

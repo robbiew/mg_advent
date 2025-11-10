@@ -250,29 +250,6 @@ func (de *DisplayEngine) applyTerminalFixes(line string) string {
 	return line
 }
 
-// processCP437WithEnhancedConversion provides enhanced CP437 to UTF-8 conversion
-// with special handling for macOS Terminal compatibility
-func (de *DisplayEngine) processCP437WithEnhancedConversion(content []byte) []string {
-	noSauce := trimStringFromSauce(string(content))
-	lines := strings.Split(noSauce, "\r\n")
-
-	converted := make([]string, len(lines))
-	for i, line := range lines {
-		// Convert from CP437 to UTF-8
-		utf8Line, err := charmap.CodePage437.NewDecoder().String(line)
-		if err != nil {
-			log.Printf("Error converting line to UTF-8: %v", err)
-			utf8Line = line // Fallback
-		}
-
-		// Additional processing for macOS Terminal compatibility
-		// Some terminals may need special character handling
-		converted[i] = utf8Line
-	}
-
-	return converted
-}
-
 // processCP437Raw processes CP437 content without conversion (for BBS mode)
 func (de *DisplayEngine) processCP437Raw(content []byte) []string {
 	noSauce := trimStringFromSauce(string(content))
@@ -396,17 +373,6 @@ func (de *DisplayEngine) updateScrollState() {
 	de.scrollState.CanScrollDown = de.scrollState.CurrentLine < de.scrollState.TotalLines-de.config.Height
 }
 
-// showScrollIndicators shows scroll position indicators
-func (de *DisplayEngine) showScrollIndicators() {
-	if de.scrollState.TotalLines <= de.config.Height {
-		return
-	}
-
-	// Position indicator at bottom right
-	percentage := float64(de.scrollState.CurrentLine) / float64(de.scrollState.TotalLines-de.config.Height) * 100
-	de.output.Write([]byte(fmt.Sprintf("\033[%d;%dH[%d%%]", de.config.Height, de.config.Width-5, int(percentage))))
-}
-
 // ClearScreen clears the screen
 func (de *DisplayEngine) ClearScreen() error {
 	de.output.Write([]byte(EraseScreen))
@@ -482,16 +448,6 @@ func trimStringFromSauce(s string) string {
 	if idx := strings.Index(s, "SAUCE00"); idx != -1 {
 		leftOfDelimiter := strings.Split(s, "SAUCE00")[0]
 		return trimLastChar(leftOfDelimiter)
-	}
-	return s
-}
-
-// trimMetadata trims metadata based on delimiters
-func trimMetadata(s string, delimiters ...string) string {
-	for _, delimiter := range delimiters {
-		if idx := strings.Index(s, delimiter); idx != -1 {
-			return trimLastChar(s[:idx])
-		}
 	}
 	return s
 }
