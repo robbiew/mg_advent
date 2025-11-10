@@ -3,7 +3,7 @@ package validation
 import (
 	"fmt"
 	"io/fs"
-	"path/filepath"
+	"path" // Use path instead of filepath for embedded FS (always forward slashes)
 	"strconv"
 	"time"
 
@@ -35,7 +35,7 @@ func (v *Validator) ValidateDate() error {
 
 // ValidateArtFiles checks if required art files exist for a year
 func (v *Validator) ValidateArtFiles(year int) error {
-	yearDir := filepath.Join(v.baseArtDir, strconv.Itoa(year))
+	yearDir := path.Join(v.baseArtDir, strconv.Itoa(year))
 
 	// Check if year directory exists
 	if _, err := fs.Stat(v.fs, yearDir); err != nil {
@@ -43,25 +43,25 @@ func (v *Validator) ValidateArtFiles(year int) error {
 	}
 
 	// Check common directory exists
-	commonDir := filepath.Join(v.baseArtDir, "common")
+	commonDir := path.Join(v.baseArtDir, "common")
 	if _, err := fs.Stat(v.fs, commonDir); err != nil {
 		return fmt.Errorf("art/common directory does not exist")
 	}
 
 	// Required common files (year-independent)
 	requiredCommonFiles := []string{
-		filepath.Join(commonDir, "WELCOME.ANS"),
-		filepath.Join(commonDir, "GOODBYE.ANS"),
-		filepath.Join(commonDir, "COMEBACK.ANS"),
-		filepath.Join(commonDir, "MISSING.ANS"),
-		filepath.Join(commonDir, "NOTYET.ANS"),
+		path.Join(commonDir, "WELCOME.ANS"),
+		path.Join(commonDir, "GOODBYE.ANS"),
+		path.Join(commonDir, "COMEBACK.ANS"),
+		path.Join(commonDir, "MISSING.ANS"),
+		path.Join(commonDir, "NOTYET.ANS"),
 	}
 
 	// Check required common files
 	missingFiles := []string{}
 	for _, file := range requiredCommonFiles {
 		if _, err := fs.Stat(v.fs, file); err != nil {
-			missingFiles = append(missingFiles, filepath.Base(file))
+			missingFiles = append(missingFiles, path.Base(file))
 		}
 	}
 
@@ -82,7 +82,7 @@ func (v *Validator) ValidateArtFiles(year int) error {
 	missingDays := []int{}
 	for day := 1; day <= maxDay; day++ {
 		fileName := fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(year)[2:])
-		filePath := filepath.Join(yearDir, fileName)
+		filePath := path.Join(yearDir, fileName)
 		if _, err := fs.Stat(v.fs, filePath); err != nil {
 			missingDays = append(missingDays, day)
 		}
@@ -106,7 +106,7 @@ func (v *Validator) ValidateYear(year int) error {
 	}
 
 	// Check if year directory exists
-	yearDir := filepath.Join(v.baseArtDir, strconv.Itoa(year))
+	yearDir := path.Join(v.baseArtDir, strconv.Itoa(year))
 	if _, err := fs.Stat(v.fs, yearDir); err != nil {
 		return fmt.Errorf("no art available for year %d", year)
 	}

@@ -3,7 +3,7 @@ package art
 import (
 	"fmt"
 	"io/fs"
-	"path/filepath"
+	"path" // Use path instead of filepath for embedded FS (always forward slashes)
 	"strconv"
 	"strings"
 
@@ -28,7 +28,7 @@ func NewManager(embeddedFS fs.FS, baseDir string) *Manager {
 
 // Validate checks if art files exist for the given year
 func (m *Manager) Validate(year int) error {
-	yearDir := filepath.Join(m.baseDir, strconv.Itoa(year))
+	yearDir := path.Join(m.baseDir, strconv.Itoa(year))
 
 	// Check if year directory exists
 	if _, err := fs.Stat(m.fs, yearDir); err != nil {
@@ -36,31 +36,31 @@ func (m *Manager) Validate(year int) error {
 	}
 
 	// Check common directory exists
-	commonDir := filepath.Join(m.baseDir, "common")
+	commonDir := path.Join(m.baseDir, "common")
 	if _, err := fs.Stat(m.fs, commonDir); err != nil {
 		return fmt.Errorf("art/common directory does not exist")
 	}
 
 	// Required common files (year-independent)
 	requiredCommonFiles := []string{
-		filepath.Join(commonDir, "WELCOME.ANS"),
-		filepath.Join(commonDir, "GOODBYE.ANS"),
-		filepath.Join(commonDir, "COMEBACK.ANS"),
-		filepath.Join(commonDir, "MISSING.ANS"),
-		filepath.Join(commonDir, "NOTYET.ANS"),
+		path.Join(commonDir, "WELCOME.ANS"),
+		path.Join(commonDir, "GOODBYE.ANS"),
+		path.Join(commonDir, "COMEBACK.ANS"),
+		path.Join(commonDir, "MISSING.ANS"),
+		path.Join(commonDir, "NOTYET.ANS"),
 	}
 
 	// Check required common files
 	for _, file := range requiredCommonFiles {
 		if _, err := fs.Stat(m.fs, file); err != nil {
-			return fmt.Errorf("required common art file missing: %s", filepath.Base(file))
+			return fmt.Errorf("required common art file missing: %s", path.Base(file))
 		}
 	}
 
 	// Check daily art files (1-25)
 	for day := 1; day <= 25; day++ {
 		fileName := fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(year)[2:])
-		filePath := filepath.Join(yearDir, fileName)
+		filePath := path.Join(yearDir, fileName)
 		if _, err := fs.Stat(m.fs, filePath); err != nil {
 			logrus.WithField("file", fileName).Warn("Daily art file missing")
 			// Don't fail validation for missing daily files, just warn
@@ -72,23 +72,23 @@ func (m *Manager) Validate(year int) error {
 
 // GetPath returns the path to an art file
 func (m *Manager) GetPath(year int, day int, screenType string) string {
-	yearDir := filepath.Join(m.baseDir, strconv.Itoa(year))
-	commonDir := filepath.Join(m.baseDir, "common")
+	yearDir := path.Join(m.baseDir, strconv.Itoa(year))
+	commonDir := path.Join(m.baseDir, "common")
 
 	switch screenType {
 	case "welcome":
-		return filepath.Join(commonDir, "WELCOME.ANS")
+		return path.Join(commonDir, "WELCOME.ANS")
 	case "goodbye", "exit":
-		return filepath.Join(commonDir, "GOODBYE.ANS")
+		return path.Join(commonDir, "GOODBYE.ANS")
 	case "comeback":
-		return filepath.Join(commonDir, "COMEBACK.ANS")
+		return path.Join(commonDir, "COMEBACK.ANS")
 	case "day":
 		fileName := fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(year)[2:])
-		return filepath.Join(yearDir, fileName)
+		return path.Join(yearDir, fileName)
 	case "missing":
-		return filepath.Join(commonDir, "MISSING.ANS")
+		return path.Join(commonDir, "MISSING.ANS")
 	case "notyet":
-		return filepath.Join(commonDir, "NOTYET.ANS")
+		return path.Join(commonDir, "NOTYET.ANS")
 	default:
 		return ""
 	}

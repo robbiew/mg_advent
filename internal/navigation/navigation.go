@@ -3,7 +3,7 @@ package navigation
 import (
 	"fmt"
 	"io/fs"
-	"path/filepath"
+	"path" // Use path instead of filepath for embedded FS (always forward slashes)
 	"strconv"
 	"time"
 
@@ -308,21 +308,21 @@ func (n *Navigator) calculateMaxDay(year int) int {
 
 // getDayArtPath returns the path to a day's art file
 func (n *Navigator) getDayArtPath(year, day int) string {
-	yearDir := filepath.Join(n.baseArtDir, strconv.Itoa(year))
+	yearDir := path.Join(n.baseArtDir, strconv.Itoa(year))
 	fileName := fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(year)[2:])
-	return filepath.Join(yearDir, fileName)
+	return path.Join(yearDir, fileName)
 }
 
 // getWelcomeArtPath returns the path to the welcome art file
 func (n *Navigator) getWelcomeArtPath(_ int) string {
-	commonDir := filepath.Join(n.baseArtDir, "common")
-	return filepath.Join(commonDir, "WELCOME.ANS")
+	commonDir := path.Join(n.baseArtDir, "common")
+	return path.Join(commonDir, "WELCOME.ANS")
 }
 
 // getComebackArtPath returns the path to the comeback art file
 func (n *Navigator) getComebackArtPath(_ int) string {
-	commonDir := filepath.Join(n.baseArtDir, "common")
-	return filepath.Join(commonDir, "COMEBACK.ANS")
+	commonDir := path.Join(n.baseArtDir, "common")
+	return path.Join(commonDir, "COMEBACK.ANS")
 }
 
 // ValidateState validates that the current state is consistent
