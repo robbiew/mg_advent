@@ -35,7 +35,13 @@ func DetectTerminalSize(writer io.Writer, reader io.Reader) (int, int, error) {
 		return 0, 0, fmt.Errorf("failed to move cursor: %w", err)
 	}
 
-	// Step 3: Query current cursor position (will be clamped to actual terminal size)
+	// Step 3: Make any response invisible by setting text color to black
+	_, err = writer.Write([]byte("\033[30m")) // Set foreground color to black (invisible)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to set invisible color: %w", err)
+	}
+
+	// Step 4: Query current cursor position (will be clamped to actual terminal size)
 	_, err = writer.Write([]byte("\033[6n")) // Query cursor position
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to send CPR query: %w", err)
@@ -94,10 +100,12 @@ func DetectTerminalSize(writer io.Writer, reader io.Reader) (int, int, error) {
 		return 0, 0, fmt.Errorf("failed to parse columns: %w", err)
 	}
 
-	// Step 4: Clear current position and restore cursor
-	// The cursor is currently at bottom-right (rows, cols) where CPR artifacts may be visible
+	// Step 5: Restore colors, clear screen, and restore cursor position
+	writer.Write([]byte("\033[0m")) // Reset all attributes (color, bold, etc.) to default
 	writer.Write([]byte("\033[2K")) // Clear the current line (where CPR response appeared)
 	writer.Write([]byte("\033[u"))  // Restore original cursor position
+	writer.Write([]byte("\033[2J")) // Clear entire screen immediately after detection
+	writer.Write([]byte("\033[H"))  // Move cursor to home position (1,1)
 	flushWriter()                   // Ensure all output is sent
 
 	logrus.WithFields(logrus.Fields{
