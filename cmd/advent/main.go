@@ -388,8 +388,15 @@ func displayNotYet(displayEngine *display.DisplayEngine, artManager *art.Manager
 		writer = os.Stdout
 	}
 
-	// Position cursor at bottom of screen and display prompt
-	fmt.Fprintf(writer, "\033[%d;1H\033[2K\033[37;1m[Press a Key]\033[0m", user.H) // Flush output if it's a buffered writer
+	// Position cursor at bottom of screen and display centered prompt
+	message := "[Press a Key]"
+	centerCol := (user.W - len(message)) / 2
+	if centerCol < 1 {
+		centerCol = 1
+	}
+	fmt.Fprintf(writer, "\033[%d;%dH\033[2K\033[37;1m%s\033[0m", user.H, centerCol, message)
+
+	// Flush output if it's a buffered writer
 	if flusher, ok := writer.(interface{ Flush() error }); ok {
 		flusher.Flush()
 	}
