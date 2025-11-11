@@ -94,12 +94,11 @@ func DetectTerminalSize(writer io.Writer, reader io.Reader) (int, int, error) {
 		return 0, 0, fmt.Errorf("failed to parse columns: %w", err)
 	}
 
-	// Step 4: Clean up off-screen and restore cursor position
-	// Move to bottom line and clear it to remove any CPR artifacts
-	writer.Write([]byte(fmt.Sprintf("\033[%d;1H", rows))) // Move to bottom line, column 1
-	writer.Write([]byte("\033[2K"))                       // Clear entire line
-	writer.Write([]byte("\033[u"))                        // Restore original cursor position
-	flushWriter()                                         // Ensure all output is sent
+	// Step 4: Clear current position and restore cursor
+	// The cursor is currently at bottom-right (rows, cols) where CPR artifacts may be visible
+	writer.Write([]byte("\033[2K")) // Clear the current line (where CPR response appeared)
+	writer.Write([]byte("\033[u"))  // Restore original cursor position
+	flushWriter()                   // Ensure all output is sent
 
 	logrus.WithFields(logrus.Fields{
 		"width":  cols,
