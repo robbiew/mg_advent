@@ -23,8 +23,15 @@ func DetectTerminalSize(writer io.Writer, reader io.Reader) (int, int, error) {
 		return nil
 	}
 
+	// Step 0: Clear screen first for clean detection environment
+	_, err := writer.Write([]byte("\033[2J\033[H")) // Clear screen and move to home
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to clear screen initially: %w", err)
+	}
+	flushWriter() // Ensure screen is cleared before detection
+
 	// Step 1: Save current cursor position
-	_, err := writer.Write([]byte("\033[s")) // Save cursor position
+	_, err = writer.Write([]byte("\033[s")) // Save cursor position
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to save cursor position: %w", err)
 	}
