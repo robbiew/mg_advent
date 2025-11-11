@@ -94,9 +94,11 @@ func DetectTerminalSize(writer io.Writer, reader io.Reader) (int, int, error) {
 		return 0, 0, fmt.Errorf("failed to parse columns: %w", err)
 	}
 
-	// Step 4: Restore cursor position
-	writer.Write([]byte("\033[u")) // Restore cursor position
-	flushWriter()                  // Ensure cursor restore is sent
+	// Step 4: Restore cursor position and clear any artifacts
+	writer.Write([]byte("\033[u"))  // Restore cursor position
+	writer.Write([]byte("\033[2J")) // Clear entire screen
+	writer.Write([]byte("\033[H"))  // Move cursor to home position (1,1)
+	flushWriter()                   // Ensure all output is sent
 
 	logrus.WithFields(logrus.Fields{
 		"width":  cols,
