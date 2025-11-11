@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -194,7 +195,7 @@ func main() {
 		logrus.Info("Date validation disabled by debug flag")
 	} else {
 		if err := validator.ValidateDate(); err != nil {
-			displayNotYet(displayEngine, artManager, initialState.CurrentYear, user)
+			displayNotYet(displayEngine, artManager, initialState.CurrentYear, user, inputHandler, bbsConn)
 			return
 		}
 	}
@@ -372,13 +373,48 @@ func applyDateOverride(_ *navigation.State, _ string) error {
 	return nil
 }
 
-func displayNotYet(displayEngine *display.DisplayEngine, artManager *art.Manager, year int, user display.User) {
+func displayNotYet(displayEngine *display.DisplayEngine, artManager *art.Manager, year int, user display.User, inputHandler *input.InputHandler, bbsConn *bbs.BBSConnection) {
 	// Display "not yet" screen
 	notYetPath := artManager.GetPath(year, 0, "notyet")
 	if notYetPath != "" {
 		displayEngine.Display(notYetPath, user)
 	}
-	time.Sleep(3 * time.Second)
+
+	// Add "[Press a Key]" prompt at bottom of screen
+	var writer io.Writer
+	if bbsConn != nil {
+		writer = bbsConn
+	} else {
+		writer = os.Stdout
+	}
+
+	// Position cursor at bottom of screen and display prompt
+	fmt.Fprintf(writer, "\033[%d;1H\033[2K\033[37;1m[Press a Key]\033[0m", user.H) // Flush output if it's a buffered writer
+	if flusher, ok := writer.(interface{ Flush() error }); ok {
+		flusher.Flush()
+	}
+
+	// Wait for any key press
+	if inputHandler != nil {
+		// Open input handler temporarily if not already open
+		wasOpen := true
+		if err := inputHandler.Open(); err != nil {
+			// If we can't open input handler, fall back to simple wait
+			time.Sleep(3 * time.Second)
+			return
+		}
+		defer func() {
+			if !wasOpen {
+				inputHandler.Close()
+			}
+		}()
+
+		// Wait for any key press
+		inputHandler.ReadKey()
+	} else {
+		// Fallback: simple pause
+		time.Sleep(3 * time.Second)
+	}
 }
 
 func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
