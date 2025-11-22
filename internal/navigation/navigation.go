@@ -17,6 +17,8 @@ const (
 	ScreenDay
 	ScreenComeback
 	ScreenYearSelect
+	ScreenInfo    // Info screen
+	ScreenMembers // Members screen
 	ScreenExit
 )
 
@@ -227,7 +229,7 @@ func (n *Navigator) SelectYearByIndex(index int, currentState State) (State, str
 
 	// Update state with new year
 	currentState.CurrentYear = selectedYear
-	currentState.MaxDay = n.calculateMaxDay(selectedYear)
+	currentState.MaxDay = n.calculateMaxDay()
 
 	// Reset to day 1 when switching years
 	currentState.CurrentDay = 1
@@ -260,7 +262,7 @@ func (n *Navigator) GetInitialState() (State, error) {
 	}).Info("Selected initial year")
 
 	// Calculate max day for the year
-	maxDay := n.calculateMaxDay(selectedYear)
+	maxDay := n.calculateMaxDay()
 
 	// For advent calendar, we always start at day 1
 	// The maxDay calculation will handle whether future days are accessible
@@ -278,7 +280,7 @@ func (n *Navigator) GetInitialState() (State, error) {
 }
 
 // calculateMaxDay calculates the maximum available day for a year
-func (n *Navigator) calculateMaxDay(year int) int {
+func (n *Navigator) calculateMaxDay() int {
 	// For testing/demo purposes or when year directories exist without full content,
 	// we allow navigation through all 25 days regardless of current date
 	// Missing art will show MISSING.ANS fallback
@@ -344,31 +346,4 @@ func (n *Navigator) LogState(state State) {
 		"screen": state.Screen,
 		"maxDay": state.MaxDay,
 	}).Debug("Navigation state")
-}
-
-// validateYearHasArt checks if a year directory contains at least some daily art files
-func (n *Navigator) validateYearHasArt(year int) bool {
-	yearDir := path.Join(n.baseArtDir, strconv.Itoa(year))
-
-	// Check if year directory exists
-	if _, err := fs.Stat(n.fs, yearDir); err != nil {
-		return false
-	}
-
-	// Look for at least one daily art file to consider the year valid
-	// Check for day 1 as a basic validation
-	fileName := fmt.Sprintf("1_DEC%s.ANS", strconv.Itoa(year)[2:])
-	filePath := path.Join(yearDir, fileName)
-
-	if _, err := fs.Stat(n.fs, filePath); err != nil {
-		logrus.WithFields(logrus.Fields{
-			"year": year,
-			"file": fileName,
-			"path": filePath,
-		}).Debug("Year validation failed - missing day 1 art file")
-		return false
-	}
-
-	logrus.WithField("year", year).Debug("Year validation passed")
-	return true
 }

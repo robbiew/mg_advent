@@ -431,6 +431,10 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 	currentState := state
 	var currentArtPath string
 
+	// For scrolling screens
+	var infoLoaded, membersLoaded bool
+	var infoLines, membersLines []string
+	var infoScrollPos, membersScrollPos int
 	for {
 		// Display current screen only if the art path changed
 		var artPath string
@@ -441,6 +445,10 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 			artPath = artManager.GetPath(currentState.CurrentYear, currentState.CurrentDay, "day")
 		case navigation.ScreenComeback:
 			artPath = artManager.GetPath(currentState.CurrentYear, 0, "comeback")
+		case navigation.ScreenInfo:
+			artPath = "art/INFOFILE.ANS"
+		case navigation.ScreenMembers:
+			artPath = "art/MEMBERS.ANS"
 		}
 
 		// Only display if art path changed
@@ -452,10 +460,47 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 				"day":            currentState.CurrentDay,
 			}).Debug("Displaying art")
 
-			if err := displayEngine.Display(artPath, user); err != nil {
-				logrus.WithError(err).Error("Failed to display art")
+			switch currentState.Screen {
+			case navigation.ScreenInfo:
+				if !infoLoaded {
+					lines, err := displayEngine.LoadAnsiLines("art/INFOFILE.ANS")
+					if err == nil {
+						infoLines = lines
+						infoLoaded = true
+						infoScrollPos = 0 // Always start at top
+					} else {
+						infoLines = []string{"[Unable to load INFOFILE.ANS]"}
+						infoLoaded = true
+						infoScrollPos = 0
+					}
+				}
+				// Always use scrolling logic for INFOFILE.ANS
+				displayEngine.SetScrollState(infoScrollPos, len(infoLines))
+				displayEngine.RenderScrollable(infoLines, infoScrollPos)
+				currentArtPath = artPath
+			case navigation.ScreenMembers:
+				if !membersLoaded {
+					lines, err := displayEngine.LoadAnsiLines("art/MEMBERS.ANS")
+					if err == nil {
+						membersLines = lines
+						membersLoaded = true
+						membersScrollPos = 0 // Always start at top
+					} else {
+						membersLines = []string{"[Unable to load MEMBERS.ANS]"}
+						membersLoaded = true
+						membersScrollPos = 0
+					}
+				}
+				// Always use scrolling logic for MEMBERS.ANS
+				displayEngine.SetScrollState(membersScrollPos, len(membersLines))
+				displayEngine.RenderScrollable(membersLines, membersScrollPos)
+				currentArtPath = artPath
+			default:
+				if err := displayEngine.Display(artPath, user); err != nil {
+					logrus.WithError(err).Error("Failed to display art")
+				}
+				currentArtPath = artPath
 			}
-			currentArtPath = artPath
 		}
 
 		// Get user input
@@ -463,6 +508,41 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 		if err != nil {
 			logrus.WithError(err).Error("Failed to read input")
 			continue
+		}
+
+		// Handle scrolling for Info/Members screens
+		// Reserve last row for menu bar (user.H - 1 is usable height)
+		if currentState.Screen == navigation.ScreenInfo {
+			if key == input.KeyArrowUp && infoScrollPos > 0 {
+				infoScrollPos--
+				logrus.WithField("infoScrollPos", infoScrollPos).Debug("Scrolling info up")
+				displayEngine.RenderScrollable(infoLines, infoScrollPos)
+				continue
+			} else if key == input.KeyArrowDown && infoScrollPos < len(infoLines)-(user.H-1) {
+				infoScrollPos++
+				logrus.WithField("infoScrollPos", infoScrollPos).Debug("Scrolling info down")
+				displayEngine.RenderScrollable(infoLines, infoScrollPos)
+				continue
+			} else if key == input.KeyArrowUp || key == input.KeyArrowDown {
+				logrus.WithFields(logrus.Fields{
+					"key":          key,
+					"scrollPos":    infoScrollPos,
+					"totalLines":   len(infoLines),
+					"maxScrollPos": len(infoLines) - (user.H - 1),
+				}).Debug("Arrow key pressed but bounds check failed")
+			}
+		} else if currentState.Screen == navigation.ScreenMembers {
+			if key == input.KeyArrowUp && membersScrollPos > 0 {
+				membersScrollPos--
+				logrus.WithField("membersScrollPos", membersScrollPos).Debug("Scrolling members up")
+				displayEngine.RenderScrollable(membersLines, membersScrollPos)
+				continue
+			} else if key == input.KeyArrowDown && membersScrollPos < len(membersLines)-(user.H-1) {
+				membersScrollPos++
+				logrus.WithField("membersScrollPos", membersScrollPos).Debug("Scrolling members down")
+				displayEngine.RenderScrollable(membersLines, membersScrollPos)
+				continue
+			}
 		}
 
 		// Reset idle timer
@@ -479,11 +559,16 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 					time.Sleep(2 * time.Second)
 				}
 				break
+			} else if currentState.Screen == navigation.ScreenInfo || currentState.Screen == navigation.ScreenMembers {
+				// Return to welcome screen from Info/Members
+				currentState.Screen = navigation.ScreenWelcome
+				infoScrollPos = 0
+				membersScrollPos = 0
+				continue
 			} else {
 				// Go back to welcome screen
 				logrus.Info("User requested return to welcome screen")
 				currentState.Screen = navigation.ScreenWelcome
-				// Art will be displayed in next iteration
 				continue
 			}
 		}
@@ -505,8 +590,19 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 					"artPath":      newArtPath,
 				}).Info("Year selected")
 				currentState = newState
-				// Art will be displayed in next iteration
 			}
+			continue
+		}
+
+		// Handle Info/Members menu keys from welcome screen
+		if currentState.Screen == navigation.ScreenWelcome && (char == 'i' || char == 'I') {
+			currentState.Screen = navigation.ScreenInfo
+			infoScrollPos = 0
+			continue
+		}
+		if currentState.Screen == navigation.ScreenWelcome && (char == 'm' || char == 'M') {
+			currentState.Screen = navigation.ScreenMembers
+			membersScrollPos = 0
 			continue
 		}
 

@@ -11,7 +11,75 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/text/encoding/charmap"
-) // TeeWriter writes to multiple writers simultaneously
+)
+
+// SetScrollState allows external code to set the scroll state for custom scrollable screens
+func (de *DisplayEngine) SetScrollState(currentLine, totalLines int) {
+	de.scrollState.CurrentLine = currentLine
+	de.scrollState.TotalLines = totalLines
+	de.scrollState.VisibleLines = de.config.Height - 1
+	de.updateScrollState()
+}
+
+// LoadAnsiLines loads and processes an ANSI file into lines (CP437/UTF-8 aware)
+func (de *DisplayEngine) LoadAnsiLines(filePath string) ([]string, error) {
+	return de.loadAndProcess(filePath)
+}
+
+// RenderScrollable renders a window of lines at the given scroll position
+func (de *DisplayEngine) RenderScrollable(lines []string, scrollPos int) error {
+	if len(lines) == 0 {
+		return nil
+	}
+	if scrollPos < 0 {
+		scrollPos = 0
+	}
+	// Reserve last row for menu bar
+	usableHeight := de.config.Height - 1
+	maxStart := len(lines) - usableHeight
+	if scrollPos > maxStart {
+		scrollPos = maxStart
+		if scrollPos < 0 {
+			scrollPos = 0
+		}
+	}
+	de.ClearScreen()
+	end := scrollPos + usableHeight
+	if end > len(lines) {
+		end = len(lines)
+	}
+	for i := scrollPos; i < end; i++ {
+		isLast := i == end-1
+		de.printLine(lines[i], isLast)
+	}
+	// Draw menu bar on last row
+	de.renderMenuBar()
+	de.flushOutput()
+	return nil
+}
+
+// renderMenuBar draws the menu bar at the last row of the terminal
+func (de *DisplayEngine) renderMenuBar() {
+	// Load the FOOTER.ANS file
+	footerLines, err := de.loadAndProcess("art/common/FOOTER.ANS")
+	if err != nil {
+		// Fallback if FOOTER.ANS doesn't exist
+		log.Printf("Warning: Could not load FOOTER.ANS: %v", err)
+		return
+	}
+
+	if len(footerLines) == 0 {
+		return
+	}
+
+	// Move cursor to last row and reset colors before printing footer
+	// This ensures any background colors from the art above don't bleed into the footer
+	de.output.Write([]byte(fmt.Sprintf("\033[%d;1H\033[0m", de.config.Height)))
+
+	// Print the footer (should be a single line)
+	de.output.Write([]byte(footerLines[0]))
+}
+
 type TeeWriter struct {
 	writers []io.Writer
 }
