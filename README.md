@@ -1,29 +1,52 @@
 # MiSTiGRiS Advent Calendar
 
-## ✨ UPDATED FOR 2025 ✨
-
 <img src="images/WELCOME.png" alt="Welcome Screen" width="100%">
 
-An interactive BBS door program that displays ANSI Christmas art, a new ones each day in December. Browse past collections as well. Compatible with all modern BBS systems that support Door32 dropfiles -- Windows and Linux.
+An interactive BBS door program that displays ANSI Christmas art, a new one each day in December. Browse past collections as well. Compatible with all modern BBS systems that support Door32 dropfiles -- Windows and Linux.
 
-## Features
+## Quick Setup
 
-- **Daily Art Display**: Unique ANSI art for each day in December
-- **Multi-Year Support**: Browse advent calendars from 2023, 2024, and 2025
-- **BBS Compatibility**: Works with Linux/Windows BBS systems using door32.sys
+### Windows
 
-## Installation
+```batch
+@echo off
+set NODE=%1
+if "%NODE%"=="" set NODE=1
 
-See [INSTALLATION.md](INSTALLATION.md) for complete setup instructions for Windows and Linux BBS systems.
+cd /d "C:\bbs\doors\advent"
+set DROPFILE_PATH=C:\bbs\temp\%NODE%\door32.sys
+
+advent.exe --path "%DROPFILE_PATH%"
+```
+
+### Linux
+
+```bash
+#!/bin/bash
+NODE=${1:-1}
+cd /opt/bbs/doors/advent
+DROPFILE_PATH="/opt/bbs/temp/${NODE}/door32.sys"
+
+./advent --path "$DROPFILE_PATH"
+```
+
+Make executable: `chmod +x advent.sh advent-linux-amd64`
+
+## Command Line Options
+
+```
+--path string           Path to door32.sys file
+--local                 Run in local UTF-8 mode (not BBS mode)
+--socket-host string    BBS server IP address (default "127.0.0.1")
+--debug                 Enable debug logging
+--debug-date string     Override date (YYYY-MM-DD)
+--debug-disable-date    Disable date validation
+--debug-disable-art     Disable art validation
+```
 
 ## Building from Source
 
-### Prerequisites
-
-- Go 1.24 or later
-- Git
-
-### Build Steps
+Prerequisites: Go 1.24 or later, Git
 
 ```bash
 # Clone repository
@@ -37,31 +60,29 @@ cd mg_advent
 build.bat
 ```
 
-This creates binaries in the `dist/` directory for multiple platforms.
-
-### Development & Testing
+## Testing
 
 ```bash
-# Local testing (no BBS required), allows you to skip the current date restrictions:
-go run cmd/advent/main.go --local --debug-disable-date --debug-date=2024-12-15
+# Local testing (no BBS required)
+# Skip date restrictions to view any day's art
+./advent --local --debug-disable-date --debug-date=2024-12-15
 ```
+
+## Usage
+
+- **Arrow Keys**: Navigate between days
+- **1, 2, 3**: Jump to different years (2023, 2024, 2025)
+- **Q or ESC**: Return to welcome screen / exit
+- **I**: View info file
+- **M**: View members list
+
+## Features
+
+- Daily ANSI art for each day in December
+- Multi-year support (2023, 2024, 2025)
+- BBS compatibility with Door32.sys dropfiles
+- Art bundled with binary (no separate art directory needed)
 
 ## License
 
 This project is released under the terms specified in the LICENSE file.
-
-## Recent Updates (2025)
-
-- **Windows 32 Support**: Beta testing socket inheritence in Go! Note, "Sysop window" is blank for now
-- **Refactored Art Structure**: Separated year-independent screens into `art/common/` directory
-- **Art Bundled with Binary**: No more art/ dir needed, it's all compiled in at build-time
-- **Multi-Year Navigation**: Added numeric key selection (1, 2) to browse previous years
-- **Improved Navigation**: Q/ESC returns to Welcome screen instead of exiting
-- **Missing Art Fallback**: Automatically displays MISSING.ANS when day art is not found
-  - Missing filename shown in bottom-right corner for debugging
-- **Year Independence**: Common screens (Welcome, Goodbye, etc.) are now shared across all years for future ease
-
-## Future Enhancements
-
-- Additional year archives (2026+)
-- Enhanced scrolling for wider/longer art pieces

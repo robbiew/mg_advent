@@ -15,9 +15,20 @@ import (
 
 // SetScrollState allows external code to set the scroll state for custom scrollable screens
 func (de *DisplayEngine) SetScrollState(currentLine, totalLines int) {
+	// Determine footer height by loading the footer file
+	footerHeight := 1 // Default to 1 row
+	footerLines, err := de.loadAndProcess("art/common/FOOTER.ANS")
+	if err == nil && len(footerLines) > 0 {
+		footerHeight = len(footerLines)
+		if footerHeight > 2 {
+			// Cap at 2 lines to avoid taking too much screen space
+			footerHeight = 2
+		}
+	}
+
 	de.scrollState.CurrentLine = currentLine
 	de.scrollState.TotalLines = totalLines
-	de.scrollState.VisibleLines = de.config.Height - 1
+	de.scrollState.VisibleLines = de.config.Height - footerHeight
 	de.updateScrollState()
 }
 
@@ -34,8 +45,21 @@ func (de *DisplayEngine) RenderScrollable(lines []string, scrollPos int) error {
 	if scrollPos < 0 {
 		scrollPos = 0
 	}
-	// Reserve last row for menu bar
-	usableHeight := de.config.Height - 1
+
+	// Determine footer height by loading the footer file
+	footerHeight := 1 // Default to 1 row
+	footerLines, err := de.loadAndProcess("art/common/FOOTER.ANS")
+	if err == nil && len(footerLines) > 0 {
+		footerHeight = len(footerLines)
+		if footerHeight > 2 {
+			// Cap at 2 lines to avoid taking too much screen space
+			footerHeight = 2
+		}
+	}
+
+	// Reserve space for footer
+	usableHeight := de.config.Height - footerHeight
+
 	maxStart := len(lines) - usableHeight
 	if scrollPos > maxStart {
 		scrollPos = maxStart
@@ -48,11 +72,18 @@ func (de *DisplayEngine) RenderScrollable(lines []string, scrollPos int) error {
 	if end > len(lines) {
 		end = len(lines)
 	}
-	for i := scrollPos; i < end; i++ {
-		isLast := i == end-1
-		de.printLine(lines[i], isLast)
+
+	// Apply 80-column handling for each visible line
+	visibleLines := lines[scrollPos:end]
+	if de.config.Columns.Handle80ColumnIssue && de.config.Width == 80 {
+		visibleLines = de.handle80ColumnIssue(visibleLines)
 	}
-	// Draw menu bar on last row
+
+	for i := 0; i < len(visibleLines); i++ {
+		isLast := i == len(visibleLines)-1
+		de.printLine(visibleLines[i], isLast)
+	}
+	// Draw menu bar at bottom
 	de.renderMenuBar()
 	de.flushOutput()
 	return nil
@@ -72,12 +103,25 @@ func (de *DisplayEngine) renderMenuBar() {
 		return
 	}
 
-	// Move cursor to last row and reset colors before printing footer
-	// This ensures any background colors from the art above don't bleed into the footer
-	de.output.Write([]byte(fmt.Sprintf("\033[%d;1H\033[0m", de.config.Height)))
+	// Get the actual footer height (number of lines in the footer)
+	footerHeight := len(footerLines)
+	if footerHeight > 2 {
+		// Cap at 2 lines to avoid taking too much screen space
+		footerHeight = 2
+	}
 
-	// Print the footer (should be a single line)
-	de.output.Write([]byte(footerLines[0]))
+	// Move cursor to appropriate row based on footer height and reset colors
+	startRow := de.config.Height - footerHeight + 1
+	de.output.Write([]byte(fmt.Sprintf("\033[%d;1H\033[0m", startRow)))
+
+	// Print the footer (up to 2 lines)
+	for i := 0; i < footerHeight && i < len(footerLines); i++ {
+		de.output.Write([]byte(footerLines[i]))
+		if i < footerHeight-1 {
+			// Add newline between footer lines, but not after the last one
+			de.output.Write([]byte("\r\n"))
+		}
+	}
 }
 
 type TeeWriter struct {

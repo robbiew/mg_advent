@@ -513,12 +513,16 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 		// Handle scrolling for Info/Members screens
 		// Reserve last row for menu bar (user.H - 1 is usable height)
 		if currentState.Screen == navigation.ScreenInfo {
+			// Get the scroll state to determine visible lines
+			scrollState := displayEngine.GetScrollState()
+			visibleLines := scrollState.VisibleLines
+
 			if key == input.KeyArrowUp && infoScrollPos > 0 {
 				infoScrollPos--
 				logrus.WithField("infoScrollPos", infoScrollPos).Debug("Scrolling info up")
 				displayEngine.RenderScrollable(infoLines, infoScrollPos)
 				continue
-			} else if key == input.KeyArrowDown && infoScrollPos < len(infoLines)-(user.H-1) {
+			} else if key == input.KeyArrowDown && infoScrollPos < len(infoLines)-visibleLines {
 				infoScrollPos++
 				logrus.WithField("infoScrollPos", infoScrollPos).Debug("Scrolling info down")
 				displayEngine.RenderScrollable(infoLines, infoScrollPos)
@@ -528,20 +532,33 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 					"key":          key,
 					"scrollPos":    infoScrollPos,
 					"totalLines":   len(infoLines),
-					"maxScrollPos": len(infoLines) - (user.H - 1),
+					"visibleLines": visibleLines,
+					"maxScrollPos": len(infoLines) - visibleLines,
 				}).Debug("Arrow key pressed but bounds check failed")
 			}
 		} else if currentState.Screen == navigation.ScreenMembers {
+			// Get the scroll state to determine visible lines
+			scrollState := displayEngine.GetScrollState()
+			visibleLines := scrollState.VisibleLines
+
 			if key == input.KeyArrowUp && membersScrollPos > 0 {
 				membersScrollPos--
 				logrus.WithField("membersScrollPos", membersScrollPos).Debug("Scrolling members up")
 				displayEngine.RenderScrollable(membersLines, membersScrollPos)
 				continue
-			} else if key == input.KeyArrowDown && membersScrollPos < len(membersLines)-(user.H-1) {
+			} else if key == input.KeyArrowDown && membersScrollPos < len(membersLines)-visibleLines {
 				membersScrollPos++
 				logrus.WithField("membersScrollPos", membersScrollPos).Debug("Scrolling members down")
 				displayEngine.RenderScrollable(membersLines, membersScrollPos)
 				continue
+			} else if key == input.KeyArrowUp || key == input.KeyArrowDown {
+				logrus.WithFields(logrus.Fields{
+					"key":          key,
+					"scrollPos":    membersScrollPos,
+					"totalLines":   len(membersLines),
+					"visibleLines": visibleLines,
+					"maxScrollPos": len(membersLines) - visibleLines,
+				}).Debug("Arrow key pressed but bounds check failed")
 			}
 		}
 
@@ -564,6 +581,9 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 				currentState.Screen = navigation.ScreenWelcome
 				infoScrollPos = 0
 				membersScrollPos = 0
+				// Reset loaded flags to ensure proper reloading next time
+				infoLoaded = false
+				membersLoaded = false
 				continue
 			} else {
 				// Go back to welcome screen
@@ -598,11 +618,15 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 		if currentState.Screen == navigation.ScreenWelcome && (char == 'i' || char == 'I') {
 			currentState.Screen = navigation.ScreenInfo
 			infoScrollPos = 0
+			// Force reload of INFOFILE.ANS to ensure proper handling
+			infoLoaded = false
 			continue
 		}
 		if currentState.Screen == navigation.ScreenWelcome && (char == 'm' || char == 'M') {
 			currentState.Screen = navigation.ScreenMembers
 			membersScrollPos = 0
+			// Force reload of MEMBERS.ANS to ensure proper handling
+			membersLoaded = false
 			continue
 		}
 
