@@ -2,7 +2,7 @@
 
 # Package script for Mistigris Advent Calendar GitHub releases
 # Creates release archives for Windows 32-bit, Linux x86_64, and Linux ARM64
-# Note: Art assets are embedded in the binary, no external art files needed
+# Note: Only includes the binary executable and essential ANS files
 #
 # Usage: ./package.sh
 # Output: Creates .zip and .tar.gz archives in dist/releases/
@@ -24,12 +24,8 @@ PLATFORMS=(
 
 # Files to include in all packages
 COMMON_FILES=(
-    "LICENSE"
-    "QUICKSTART.md"
-    "INSTALLATION.md"
-    "README.md"
     "dist/FILE_ID.ANS"
-    "dist/INFOFILE.ANS" 
+    "dist/INFOFILE.ANS"
     "dist/MEMBERS.ANS"
 )
 
@@ -69,7 +65,7 @@ create_package() {
         fi
     fi
     
-    # Copy common files
+    # Copy essential ANS files
     for file in "${COMMON_FILES[@]}"; do
         if [ ! -f "$file" ]; then
             echo "WARNING: $file not found, skipping..."

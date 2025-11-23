@@ -16,7 +16,7 @@ if "%NODE%"=="" set NODE=1
 cd /d "C:\bbs\doors\advent"
 set DROPFILE_PATH=C:\bbs\temp\%NODE%\door32.sys
 
-advent.exe --path "%DROPFILE_PATH%"
+advent.exe -path "%DROPFILE_PATH%"
 ```
 
 ### Linux
@@ -27,7 +27,7 @@ NODE=${1:-1}
 cd /opt/bbs/doors/advent
 DROPFILE_PATH="/opt/bbs/temp/${NODE}/door32.sys"
 
-./advent --path "$DROPFILE_PATH"
+./advent -path "$DROPFILE_PATH"
 ```
 
 Make executable: `chmod +x advent.sh advent-linux-amd64`
@@ -35,13 +35,13 @@ Make executable: `chmod +x advent.sh advent-linux-amd64`
 ## Command Line Options
 
 ```
---path string           Path to door32.sys file
---local                 Run in local UTF-8 mode (not BBS mode)
---socket-host string    BBS server IP address (default "127.0.0.1")
---debug                 Enable debug logging
---debug-date string     Override date (YYYY-MM-DD)
---debug-disable-date    Disable date validation
---debug-disable-art     Disable art validation
+-path string           Path to door32.sys file
+-local                 Run in local UTF-8 mode (not BBS mode)
+-socket-host string    BBS server IP address (default "127.0.0.1")
+-debug                 Enable debug logging
+-debug-date string     Override date (YYYY-MM-DD)
+-debug-disable-date    Disable date validation
+-debug-disable-art     Disable art validation
 ```
 
 ## Building from Source
@@ -65,7 +65,7 @@ build.bat
 ```bash
 # Local testing (no BBS required)
 # Skip date restrictions to view any day's art
-./advent --local --debug-disable-date --debug-date=2024-12-15
+./advent -local -debug-disable-date -debug-date=2024-12-15
 ```
 
 ## Usage
