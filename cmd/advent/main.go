@@ -446,9 +446,9 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 		case navigation.ScreenComeback:
 			artPath = artManager.GetPath(currentState.CurrentYear, 0, "comeback")
 		case navigation.ScreenInfo:
-			artPath = "art/INFOFILE.ANS"
+			artPath = artManager.GetPath(currentState.CurrentYear, 0, "info")
 		case navigation.ScreenMembers:
-			artPath = "art/MEMBERS.ANS"
+			artPath = artManager.GetPath(currentState.CurrentYear, 0, "members")
 		}
 
 		// Only display if art path changed
@@ -463,13 +463,13 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 			switch currentState.Screen {
 			case navigation.ScreenInfo:
 				if !infoLoaded {
-					lines, err := displayEngine.LoadAnsiLines("art/INFOFILE.ANS")
+					lines, err := displayEngine.LoadAnsiLines(artPath)
 					if err == nil {
 						infoLines = lines
 						infoLoaded = true
 						infoScrollPos = 0 // Always start at top
 					} else {
-						infoLines = []string{"[Unable to load INFOFILE.ANS]"}
+						infoLines = []string{fmt.Sprintf("[Unable to load %s]", artPath)}
 						infoLoaded = true
 						infoScrollPos = 0
 					}
@@ -480,13 +480,13 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 				currentArtPath = artPath
 			case navigation.ScreenMembers:
 				if !membersLoaded {
-					lines, err := displayEngine.LoadAnsiLines("art/MEMBERS.ANS")
+					lines, err := displayEngine.LoadAnsiLines(artPath)
 					if err == nil {
 						membersLines = lines
 						membersLoaded = true
 						membersScrollPos = 0 // Always start at top
 					} else {
-						membersLines = []string{"[Unable to load MEMBERS.ANS]"}
+						membersLines = []string{fmt.Sprintf("[Unable to load %s]", artPath)}
 						membersLoaded = true
 						membersScrollPos = 0
 					}
@@ -567,9 +567,12 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 
 		// Handle quit/back navigation
 		if char == 'q' || char == 'Q' || key == input.KeyEsc {
-			if currentState.Screen == navigation.ScreenWelcome {
-				// Already on welcome screen, exit application
-				logrus.Info("User requested exit from welcome screen")
+			// Get the latest year from available years
+			latestYear := currentState.AvailableYears[len(currentState.AvailableYears)-1]
+
+			if currentState.Screen == navigation.ScreenWelcome && currentState.CurrentYear == latestYear {
+				// Only exit if we're on the welcome screen of the latest year (2025)
+				logrus.Info("User requested exit from latest year's welcome screen")
 				exitPath := artManager.GetPath(currentState.CurrentYear, 0, "goodbye")
 				if exitPath != "" {
 					displayEngine.Display(exitPath, user)
@@ -586,8 +589,21 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 				membersLoaded = false
 				continue
 			} else {
-				// Go back to welcome screen
+				// Go back to welcome screen of the latest year
 				logrus.Info("User requested return to welcome screen")
+
+				// Get the latest year from available years
+				latestYear := currentState.AvailableYears[len(currentState.AvailableYears)-1]
+
+				// Only change the year if we're not already in the latest year
+				if currentState.CurrentYear != latestYear {
+					logrus.WithFields(logrus.Fields{
+						"previousYear": currentState.CurrentYear,
+						"latestYear":   latestYear,
+					}).Info("Returning to latest year's welcome screen")
+					currentState.CurrentYear = latestYear
+				}
+
 				currentState.Screen = navigation.ScreenWelcome
 				continue
 			}

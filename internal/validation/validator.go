@@ -50,16 +50,29 @@ func (v *Validator) ValidateArtFiles(year int) error {
 
 	// Required common files (year-independent)
 	requiredCommonFiles := []string{
-		path.Join(commonDir, "WELCOME.ANS"),
 		path.Join(commonDir, "GOODBYE.ANS"),
 		path.Join(commonDir, "COMEBACK.ANS"),
 		path.Join(commonDir, "MISSING.ANS"),
 		path.Join(commonDir, "NOTYET.ANS"),
 	}
 
+	// Required year-specific files
+	requiredYearFiles := []string{
+		path.Join(yearDir, "WELCOME.ANS"),
+	}
+
 	// Check required common files
 	missingFiles := []string{}
+
+	// Check common files
 	for _, file := range requiredCommonFiles {
+		if _, err := fs.Stat(v.fs, file); err != nil {
+			missingFiles = append(missingFiles, path.Base(file))
+		}
+	}
+
+	// Check year-specific files
+	for _, file := range requiredYearFiles {
 		if _, err := fs.Stat(v.fs, file); err != nil {
 			missingFiles = append(missingFiles, path.Base(file))
 		}
@@ -131,6 +144,35 @@ func (v *Validator) ValidateTerminalSize(width, height int) error {
 		return fmt.Errorf("terminal height too small (got %d, need at least 24)", height)
 	}
 	return nil
+}
+
+// Override time.Now for testing
+var timeNow = time.Now
+
+// RequireKey checks if a key is required to access a year
+func (v *Validator) RequireKey(year int) bool {
+	// Get current date
+	now := timeNow()
+
+	// Current year is always accessible without key
+	currentYear := now.Year()
+	if year == currentYear {
+		return false
+	}
+
+	// Only 2025 requires keys to access older years
+	if currentYear == 2025 && year < currentYear {
+		return true
+	}
+
+	// Non-current years don't require keys
+	return false
+}
+
+// ValidateKey checks if a key is valid for a year
+func (v *Validator) ValidateKey(year int, key string) bool {
+	// For now, any non-empty key is valid
+	return key != ""
 }
 
 // GetValidationReport generates a comprehensive validation report

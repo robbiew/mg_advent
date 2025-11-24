@@ -77,7 +77,24 @@ func (m *Manager) GetPath(year int, day int, screenType string) string {
 
 	switch screenType {
 	case "welcome":
-		return path.Join(commonDir, "WELCOME.ANS")
+		// Always use year-specific WELCOME.ANS
+		return path.Join(yearDir, "WELCOME.ANS")
+	case "info":
+		// First check if year-specific INFOFILE.ANS exists
+		yearSpecificInfo := path.Join(yearDir, "INFOFILE.ANS")
+		if _, err := fs.Stat(m.fs, yearSpecificInfo); err == nil {
+			return yearSpecificInfo
+		}
+		// Fall back to root INFOFILE.ANS
+		return path.Join(m.baseDir, "INFOFILE.ANS")
+	case "members":
+		// First check if year-specific MEMBERS.ANS exists
+		yearSpecificMembers := path.Join(yearDir, "MEMBERS.ANS")
+		if _, err := fs.Stat(m.fs, yearSpecificMembers); err == nil {
+			return yearSpecificMembers
+		}
+		// Fall back to root MEMBERS.ANS
+		return path.Join(m.baseDir, "MEMBERS.ANS")
 	case "goodbye", "exit":
 		return path.Join(commonDir, "GOODBYE.ANS")
 	case "comeback":

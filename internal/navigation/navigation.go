@@ -115,9 +115,13 @@ func (n *Navigator) Navigate(direction Direction, currentState State) (newState 
 func (n *Navigator) navigateFromWelcome(direction Direction, state State) (State, string, error) {
 	switch direction {
 	case DirRight:
-		// Move to current day's art
+		// Move to day 1 for older years, or current day for current year
 		state.Screen = ScreenDay
+
+		// For simplicity, always navigate to day 1 when pressing right from welcome
+		state.CurrentDay = 1
 		artPath := n.getDayArtPath(state.CurrentYear, state.CurrentDay)
+
 		return state, artPath, nil
 	case DirLeft:
 		// Stay on welcome screen
@@ -231,12 +235,11 @@ func (n *Navigator) SelectYearByIndex(index int, currentState State) (State, str
 	currentState.CurrentYear = selectedYear
 	currentState.MaxDay = n.calculateMaxDay()
 
-	// Reset to day 1 when switching years
-	currentState.CurrentDay = 1
-	currentState.Screen = ScreenDay
+	// When switching years, start with the year's welcome screen
+	currentState.Screen = ScreenWelcome
 
-	// Get art path for first day
-	artPath := n.getDayArtPath(selectedYear, 1)
+	// Get art path for the year's welcome screen
+	artPath := n.getWelcomeArtPath(selectedYear)
 
 	return currentState, artPath, nil
 }
@@ -295,9 +298,9 @@ func (n *Navigator) getDayArtPath(year, day int) string {
 }
 
 // getWelcomeArtPath returns the path to the welcome art file
-func (n *Navigator) getWelcomeArtPath(_ int) string {
-	commonDir := path.Join(n.baseArtDir, "common")
-	return path.Join(commonDir, "WELCOME.ANS")
+func (n *Navigator) getWelcomeArtPath(year int) string {
+	yearDir := path.Join(n.baseArtDir, strconv.Itoa(year))
+	return path.Join(yearDir, "WELCOME.ANS")
 }
 
 // getComebackArtPath returns the path to the comeback art file
