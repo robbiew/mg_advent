@@ -76,13 +76,6 @@ build.bat
 - **I**: View info file
 - **M**: View members list
 
-## Features
-
-- Daily ANSI art for each day in December
-- Multi-year support (2023, 2024, 2025)
-- BBS compatibility with Door32.sys dropfiles
-- Art bundled with binary (no separate art directory needed)
-
 ## License
 
 This project is released under the terms specified in the LICENSE file.

@@ -520,12 +520,12 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 			if key == input.KeyArrowUp && infoScrollPos > 0 {
 				infoScrollPos--
 				logrus.WithField("infoScrollPos", infoScrollPos).Debug("Scrolling info up")
-				displayEngine.RenderScrollable(infoLines, infoScrollPos)
+				displayEngine.RenderScrollableContentOnly(infoLines, infoScrollPos)
 				continue
 			} else if key == input.KeyArrowDown && infoScrollPos < len(infoLines)-visibleLines {
 				infoScrollPos++
 				logrus.WithField("infoScrollPos", infoScrollPos).Debug("Scrolling info down")
-				displayEngine.RenderScrollable(infoLines, infoScrollPos)
+				displayEngine.RenderScrollableContentOnly(infoLines, infoScrollPos)
 				continue
 			} else if key == input.KeyArrowUp || key == input.KeyArrowDown {
 				logrus.WithFields(logrus.Fields{
@@ -544,12 +544,12 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 			if key == input.KeyArrowUp && membersScrollPos > 0 {
 				membersScrollPos--
 				logrus.WithField("membersScrollPos", membersScrollPos).Debug("Scrolling members up")
-				displayEngine.RenderScrollable(membersLines, membersScrollPos)
+				displayEngine.RenderScrollableContentOnly(membersLines, membersScrollPos)
 				continue
 			} else if key == input.KeyArrowDown && membersScrollPos < len(membersLines)-visibleLines {
 				membersScrollPos++
 				logrus.WithField("membersScrollPos", membersScrollPos).Debug("Scrolling members down")
-				displayEngine.RenderScrollable(membersLines, membersScrollPos)
+				displayEngine.RenderScrollableContentOnly(membersLines, membersScrollPos)
 				continue
 			} else if key == input.KeyArrowUp || key == input.KeyArrowDown {
 				logrus.WithFields(logrus.Fields{

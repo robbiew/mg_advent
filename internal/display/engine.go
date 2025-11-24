@@ -89,6 +89,68 @@ func (de *DisplayEngine) RenderScrollable(lines []string, scrollPos int) error {
 	return nil
 }
 
+// RenderScrollableContentOnly renders only the content area without clearing screen or redrawing footer
+// This is used for efficient scrolling where the footer remains static
+func (de *DisplayEngine) RenderScrollableContentOnly(lines []string, scrollPos int) error {
+	if len(lines) == 0 {
+		return nil
+	}
+	if scrollPos < 0 {
+		scrollPos = 0
+	}
+
+	// Determine footer height by loading the footer file
+	footerHeight := 1 // Default to 1 row
+	footerLines, err := de.loadAndProcess("art/common/FOOTER.ANS")
+	if err == nil && len(footerLines) > 0 {
+		footerHeight = len(footerLines)
+		if footerHeight > 2 {
+			// Cap at 2 lines to avoid taking too much screen space
+			footerHeight = 2
+		}
+	}
+
+	// Reserve space for footer
+	usableHeight := de.config.Height - footerHeight
+
+	maxStart := len(lines) - usableHeight
+	if scrollPos > maxStart {
+		scrollPos = maxStart
+		if scrollPos < 0 {
+			scrollPos = 0
+		}
+	}
+
+	end := scrollPos + usableHeight
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	// Apply 80-column handling for each visible line
+	visibleLines := lines[scrollPos:end]
+	if de.config.Columns.Handle80ColumnIssue && de.config.Width == 80 {
+		visibleLines = de.handle80ColumnIssue(visibleLines)
+	}
+
+	// Move cursor to top-left and render each line at its specific position
+	// This avoids clearing the screen and preserves the footer
+	for i := 0; i < usableHeight; i++ {
+		// Position cursor at the start of line i+1 (1-indexed)
+		de.output.Write([]byte(fmt.Sprintf("\033[%d;1H", i+1)))
+
+		if i < len(visibleLines) {
+			// Print the line content
+			de.output.Write([]byte(visibleLines[i]))
+		}
+
+		// Clear to end of line to remove any leftover content
+		de.output.Write([]byte("\033[K"))
+	}
+
+	de.flushOutput()
+	return nil
+}
+
 // renderMenuBar draws the menu bar at the last row of the terminal
 func (de *DisplayEngine) renderMenuBar() {
 	// Load the FOOTER.ANS file
