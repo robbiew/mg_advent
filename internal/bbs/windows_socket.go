@@ -24,6 +24,7 @@ var (
 	procSend        = ws2_32.NewProc("send")
 	procGetSockName = ws2_32.NewProc("getsockname")
 	procGetPeerName = ws2_32.NewProc("getpeername")
+	procIoctlsocket = ws2_32.NewProc("ioctlsocket")
 )
 
 const (
@@ -32,10 +33,11 @@ const (
 	IPPROTO_TCP     = 6
 	SOL_SOCKET      = 0xffff
 	SO_REUSEADDR    = 4
-	WSAEWOULDBLOCK  = 10035 // Non-blocking socket operation would block
-	WSAETIMEDOUT    = 10060 // Connection timed out
-	WSAECONNRESET   = 10054 // Connection reset by peer
-	WSAECONNABORTED = 10053 // Connection aborted
+	FIONBIO         = 0x8004667e // Set non-blocking I/O mode
+	WSAEWOULDBLOCK  = 10035      // Non-blocking socket operation would block
+	WSAETIMEDOUT    = 10060      // Connection timed out
+	WSAECONNRESET   = 10054      // Connection reset by peer
+	WSAECONNABORTED = 10053      // Connection aborted
 )
 
 // WindowsSocket wraps a Windows socket handle for BBS door communication
@@ -51,12 +53,27 @@ func CreateSocketFromHandle(socketHandle int) (net.Conn, error) {
 	// Convert the socket handle to a proper Windows handle
 	handle := syscall.Handle(socketHandle)
 
+	// CRITICAL: Set socket to BLOCKING mode (like ODoors does)
+	// The inherited socket from BBS is likely non-blocking, causing WSAEWOULDBLOCK errors
+	nonBlocking := uint32(0) // 0 = blocking, 1 = non-blocking
+	ret, _, errno := procIoctlsocket.Call(
+		uintptr(handle),
+		uintptr(FIONBIO),
+		uintptr(unsafe.Pointer(&nonBlocking)),
+	)
+
+	if ret == 0 {
+		logrus.Info("Socket set to BLOCKING mode successfully")
+	} else {
+		logrus.WithField("errno", errno).Warn("Failed to set socket to blocking mode - proceeding anyway")
+	}
+
 	// Try to validate if it's a socket, but don't fail if validation fails
 	// Many BBS systems provide redirected handles that aren't traditional sockets
 	var sockaddr syscall.RawSockaddrAny
 	sockaddrlen := int32(unsafe.Sizeof(sockaddr))
 
-	ret, _, errno := procGetSockName.Call(
+	ret, _, errno = procGetSockName.Call(
 		uintptr(handle),
 		uintptr(unsafe.Pointer(&sockaddr)),
 		uintptr(unsafe.Pointer(&sockaddrlen)),
@@ -69,8 +86,9 @@ func CreateSocketFromHandle(socketHandle int) (net.Conn, error) {
 			"handle": socketHandle,
 			"errno":  errno,
 		}).Warn("Handle validation failed - proceeding anyway (may be redirected handle)")
-	} // Create a file descriptor from the Windows socket handle
-	// This is the tricky part - we need to make Go's net package work with our handle
+	}
+
+	// Create a file descriptor from the Windows socket handle
 	fd := int(handle)
 
 	// Create a Go net.Conn wrapper around the Windows socket
@@ -98,97 +116,74 @@ func createGoConnFromHandle(handle syscall.Handle, fd int) (net.Conn, error) {
 
 // WindowsSocketConn implements net.Conn interface for Windows socket handles
 type WindowsSocketConn struct {
-	socket     *WindowsSocket
-	localAddr  net.Addr
-	remoteAddr net.Addr
+	socket       *WindowsSocket
+	localAddr    net.Addr
+	remoteAddr   net.Addr
+	readDeadline time.Time
 }
 
-// Read implements net.Conn.Read with proper handling of non-blocking sockets
+// Read implements net.Conn.Read - socket is now in BLOCKING mode
 func (c *WindowsSocketConn) Read(b []byte) (n int, err error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
 
-	// For BBS doors, we need to wait indefinitely for user input
-	// Retry forever with increasing delays for WSAEWOULDBLOCK
-	retryDelay := 50 * time.Millisecond // Longer delay to reduce CPU usage
+	// Socket is in blocking mode - this will wait until data arrives
+	ret, _, errno := procRecv.Call(
+		uintptr(c.socket.handle),
+		uintptr(unsafe.Pointer(&b[0])),
+		uintptr(len(b)),
+		0, // flags
+	)
 
-	for {
-		ret, _, errno := procRecv.Call(
-			uintptr(c.socket.handle),
-			uintptr(unsafe.Pointer(&b[0])),
-			uintptr(len(b)),
-			0, // flags
-		)
+	if ret == ^uintptr(0) { // SOCKET_ERROR
+		// Convert errno to syscall.Errno for comparison
+		errNum := errno.(syscall.Errno)
 
-		if ret == ^uintptr(0) { // SOCKET_ERROR
-			// Convert errno to syscall.Errno for comparison
-			errNum := errno.(syscall.Errno)
-
-			// Check if it's a non-blocking "would block" error
-			if errNum == syscall.Errno(WSAEWOULDBLOCK) {
-				// Socket would block - this is normal when waiting for user input
-				// Sleep and try again (essentially simulating blocking I/O)
-				time.Sleep(retryDelay)
-				continue
-			}
-
-			// Check for connection errors that should terminate
-			if errNum == WSAECONNRESET || errNum == WSAECONNABORTED || errNum == WSAETIMEDOUT {
-				logrus.WithField("errno", errno).Info("Socket connection terminated")
-				return 0, fmt.Errorf("socket recv failed: connection closed (%v)", errno)
-			}
-
-			// Other socket errors
-			return 0, fmt.Errorf("socket recv failed: %v", errno)
+		// Check for connection errors
+		if errNum == WSAECONNRESET || errNum == WSAECONNABORTED || errNum == WSAETIMEDOUT {
+			logrus.WithField("errno", errno).Info("Socket connection terminated")
+			return 0, fmt.Errorf("socket recv failed: connection closed (%v)", errno)
 		}
 
-		// Success - data received
-		return int(ret), nil
+		// Other socket errors (shouldn't get WSAEWOULDBLOCK in blocking mode)
+		return 0, fmt.Errorf("socket recv failed: %v", errno)
 	}
+
+	// Success - data received
+	return int(ret), nil
 }
 
-// Write implements net.Conn.Write with proper handling of non-blocking sockets
+// Write implements net.Conn.Write - socket is now in BLOCKING mode
 func (c *WindowsSocketConn) Write(b []byte) (n int, err error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
 
-	// For BBS doors, retry indefinitely for WSAEWOULDBLOCK
-	retryDelay := 10 * time.Millisecond
+	// Socket is in blocking mode - this will wait until data can be sent
+	ret, _, errno := procSend.Call(
+		uintptr(c.socket.handle),
+		uintptr(unsafe.Pointer(&b[0])),
+		uintptr(len(b)),
+		0, // flags
+	)
 
-	for {
-		ret, _, errno := procSend.Call(
-			uintptr(c.socket.handle),
-			uintptr(unsafe.Pointer(&b[0])),
-			uintptr(len(b)),
-			0, // flags
-		)
+	if ret == ^uintptr(0) { // SOCKET_ERROR
+		// Convert errno to syscall.Errno for comparison
+		errNum := errno.(syscall.Errno)
 
-		if ret == ^uintptr(0) { // SOCKET_ERROR
-			// Convert errno to syscall.Errno for comparison
-			errNum := errno.(syscall.Errno)
-
-			// Check if it's a non-blocking "would block" error
-			if errNum == syscall.Errno(WSAEWOULDBLOCK) {
-				// Socket would block - wait a bit and retry
-				time.Sleep(retryDelay)
-				continue
-			}
-
-			// Check for connection errors that should terminate
-			if errNum == WSAECONNRESET || errNum == WSAECONNABORTED || errNum == WSAETIMEDOUT {
-				logrus.WithField("errno", errno).Info("Socket connection terminated")
-				return 0, fmt.Errorf("socket send failed: connection closed (%v)", errno)
-			}
-
-			// Other socket errors
-			return 0, fmt.Errorf("socket send failed: %v", errno)
+		// Check for connection errors
+		if errNum == WSAECONNRESET || errNum == WSAECONNABORTED || errNum == WSAETIMEDOUT {
+			logrus.WithField("errno", errno).Info("Socket connection terminated")
+			return 0, fmt.Errorf("socket send failed: connection closed (%v)", errno)
 		}
 
-		// Success - data sent
-		return int(ret), nil
+		// Other socket errors (shouldn't get WSAEWOULDBLOCK in blocking mode)
+		return 0, fmt.Errorf("socket send failed: %v", errno)
 	}
+
+	// Success - data sent
+	return int(ret), nil
 }
 
 // Close implements net.Conn.Close

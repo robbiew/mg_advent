@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -24,6 +25,7 @@ var (
 	// Command line flags
 	localMode    = flag.Bool("local", false, "run in local UTF-8 mode")
 	socketHost   = flag.String("socket-host", "127.0.0.1", "BBS server IP address")
+	socketHandle = flag.Int("socket", 0, "socket handle from BBS (Mystic %0)")
 	debugDate    = flag.String("debug-date", "", "override date (YYYY-MM-DD)")
 	disableDate  = flag.Bool("debug-disable-date", false, "disable date validation")
 	disableArt   = flag.Bool("debug-disable-art", false, "disable art validation")
@@ -32,23 +34,61 @@ var (
 )
 
 func main() {
+	startTime := time.Now()
+
+	// CRITICAL Windows 7 FIX: Write to stderr FIRST to force console initialization
+	// Windows 7 console buffers stdout for 20 seconds unless console is "active"
+	// Stderr write forces console activation
+	if runtime.GOOS == "windows" {
+		fmt.Fprintf(os.Stderr, "") // Write to stderr forces console init
+		os.Stderr.Sync()
+	}
+
 	flag.Parse()
 
-	// Setup logging - only show errors by default to keep BBS output clean
-	// Set to InfoLevel or DebugLevel for troubleshooting
-	if *debugMode {
+	// CRITICAL FIX: If socket handle provided, create connection IMMEDIATELY
+	// and use it for ALL output (including logs) from the start
+	var bbsConn *bbs.BBSConnection
+	if *socketHandle > 0 {
+		// Create socket connection BEFORE anything else
+		var err error
+		bbsConn, err = bbs.NewBBSConnectionFromSocket(*socketHandle, *dropfilePath)
+		if err != nil {
+			// Fallback to stdout only if socket fails
+			fmt.Fprintf(os.Stdout, "ERROR: Socket connection failed: %v\r\n", err)
+			os.Exit(1)
+		}
+		// Immediately write to socket to prove connection works
+		bbsConn.Write([]byte("\033[2J\033[H\033[37;1mConnected!\033[0m\r\n"))
+		bbsConn.Flush()
+	}
+
+	// Always enable info logging for Windows to debug the 20-second delay
+	if runtime.GOOS == "windows" {
+		logrus.SetLevel(logrus.InfoLevel)
+		// CRITICAL: Make logrus write to STDOUT instead of STDERR
+		// Windows 7 might be buffering mixed stdout/stderr differently
+		logrus.SetOutput(os.Stdout)
+	} else if *debugMode {
 		logrus.SetLevel(logrus.DebugLevel)
 	} else {
 		logrus.SetLevel(logrus.ErrorLevel)
 	}
 	logrus.SetFormatter(&logrus.TextFormatter{
-		DisableTimestamp: true, // Cleaner output for BBS
+		TimestampFormat: "15:04:05.000",
+		FullTimestamp:   true,
 	})
 
+	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Flags parsed")
+
 	// Initialize components with embedded art filesystem
+	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Creating art manager")
 	artManager := art.NewManager(embedded.ArtFS, "art")
+	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Creating navigator")
 	navigator := navigation.NewNavigator(embedded.ArtFS, "art")
+	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Creating validator")
 	validator := validation.NewValidator(embedded.ArtFS, "art")
+	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Components created")
 
 	// Determine display mode
 	// BBS mode: raw CP437 bytes (no conversion)
@@ -80,12 +120,13 @@ func main() {
 		},
 	}, embedded.ArtFS)
 
-	// Create BBS connection - this is REQUIRED for Windows BBS doors
-	// All output must go through the inherited socket handle, not stdout
-	var bbsConn *bbs.BBSConnection
-	if *dropfilePath != "" {
+	// If not already connected via socket, try door32.sys
+	if bbsConn == nil && *dropfilePath != "" {
+		// Traditional method: read socket from door32.sys
+		logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Creating BBS connection from door32.sys")
 		var connErr error
 		bbsConn, connErr = bbs.NewBBSConnection(*dropfilePath, *socketHost)
+		logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: BBS connection created")
 		if connErr != nil {
 			logrus.WithError(connErr).Error("Failed to create BBS connection - continuing in fallback mode")
 			fmt.Println("ERROR: Unable to establish BBS connection.")
@@ -124,10 +165,14 @@ func main() {
 		})
 
 	// Get user information
+	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Getting user info")
 	user := getUserInfo(*localMode)
+	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Got user info")
 
 	// Detect terminal size (prefer BBS connection query over term.GetSize)
+	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Detecting terminal size")
 	width, height := detectTerminalSize(bbsConn)
+	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Terminal size detected")
 
 	// Update user struct with detected terminal size
 	user.W = width
@@ -180,7 +225,9 @@ func main() {
 	}
 
 	// Get initial navigation state
+	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Getting initial state")
 	initialState, err := navigator.GetInitialState()
+	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Got initial state")
 	if err != nil {
 		logrus.WithError(err).Error("Failed to get initial navigation state")
 		fmt.Println("ERROR: Unable to initialize door navigation.")
@@ -230,6 +277,7 @@ func main() {
 	defer sessionManager.Stop()
 
 	// Open input handler
+	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: About to open input handler")
 	if err := inputHandler.Open(); err != nil {
 		logrus.WithError(err).Error("Failed to open input handler")
 		fmt.Println("ERROR: Unable to initialize user input system.")
@@ -238,11 +286,14 @@ func main() {
 		fmt.Scanln()
 		return
 	}
+	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Input handler opened")
 	defer inputHandler.Close()
 
 	// Hide cursor and clear screen for both BBS and local modes
+	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Hiding cursor and clearing screen")
 	displayEngine.HideCursor()
 	displayEngine.ClearScreen()
+	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Screen ready, entering main loop")
 	defer displayEngine.ShowCursor() // Ensure cursor is shown on exit
 
 	// Main application loop
@@ -428,6 +479,7 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 	navigator *navigation.Navigator, inputHandler *input.InputHandler,
 	sessionManager *session.Manager, state navigation.State, user display.User) {
 
+	loopStart := time.Now()
 	currentState := state
 	var currentArtPath string
 
@@ -435,12 +487,17 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 	var infoLoaded, membersLoaded bool
 	var infoLines, membersLines []string
 	var infoScrollPos, membersScrollPos int
+
+	logrus.WithField("elapsed", time.Since(loopStart)).Info("MAINLOOP: Starting first iteration")
+
 	for {
 		// Display current screen only if the art path changed
 		var artPath string
 		switch currentState.Screen {
 		case navigation.ScreenWelcome:
+			logrus.WithField("elapsed", time.Since(loopStart)).Info("MAINLOOP: Getting welcome art path")
 			artPath = artManager.GetPath(currentState.CurrentYear, 0, "welcome")
+			logrus.WithField("elapsed", time.Since(loopStart)).WithField("path", artPath).Info("MAINLOOP: Got welcome art path")
 		case navigation.ScreenDay:
 			artPath = artManager.GetPath(currentState.CurrentYear, currentState.CurrentDay, "day")
 		case navigation.ScreenComeback:
@@ -453,6 +510,7 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 
 		// Only display if art path changed
 		if artPath != "" && artPath != currentArtPath {
+			logrus.WithField("elapsed", time.Since(loopStart)).WithField("path", artPath).Info("MAINLOOP: About to display art")
 			logrus.WithFields(logrus.Fields{
 				"artPath":        artPath,
 				"currentArtPath": currentArtPath,
@@ -496,15 +554,24 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 				displayEngine.RenderScrollable(membersLines, membersScrollPos)
 				currentArtPath = artPath
 			default:
+				logrus.WithField("elapsed", time.Since(loopStart)).Info("MAINLOOP: Calling displayEngine.Display()")
 				if err := displayEngine.Display(artPath, user); err != nil {
 					logrus.WithError(err).Error("Failed to display art")
 				}
+				logrus.WithField("elapsed", time.Since(loopStart)).Info("MAINLOOP: displayEngine.Display() returned")
 				currentArtPath = artPath
 			}
 		}
 
 		// Get user input
+		// CRITICAL: Give Mystic BBS time to transmit buffered output to user's terminal before blocking on input
+		// Windows 7 + Mystic BBS needs significant time to flush output buffers
+		logrus.WithField("elapsed", time.Since(loopStart)).Info("MAINLOOP: Waiting 500ms before reading input (BBS output stabilization)")
+		time.Sleep(500 * time.Millisecond)
+
+		logrus.WithField("elapsed", time.Since(loopStart)).Info("MAINLOOP: Now reading user input")
 		char, key, err := inputHandler.ReadKey()
+		logrus.WithField("elapsed", time.Since(loopStart)).Info("MAINLOOP: Got user input")
 		if err != nil {
 			logrus.WithError(err).Error("Failed to read input")
 			continue

@@ -1,13 +1,13 @@
 package display
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
 	"os"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"golang.org/x/text/encoding/charmap"
@@ -255,13 +255,17 @@ type DisplayEngine struct {
 	themeManager   *ThemeManager
 	scrollState    ScrollState
 	cache          map[string][]string
-	currentContent []string  // Store current content for scrolling re-renders
-	output         io.Writer // Output destination (console, BBS, or both)
-	fs             fs.FS     // Embedded filesystem for art files
+	currentContent []string      // Store current content for scrolling re-renders
+	output         io.Writer     // Output destination (console, BBS, or both)
+	fs             fs.FS         // Embedded filesystem for art files
+	stdoutBuf      *bufio.Writer // Buffered writer for Windows console
 }
 
 // NewDisplayEngine creates a new display engine
 func NewDisplayEngine(config DisplayConfig, embeddedFS fs.FS) *DisplayEngine {
+	// Use buffered writer for stdout to ensure proper flushing on Windows
+	writer := bufio.NewWriter(os.Stdout)
+
 	return &DisplayEngine{
 		config:       config,
 		themeManager: NewThemeManager(),
@@ -271,8 +275,9 @@ func NewDisplayEngine(config DisplayConfig, embeddedFS fs.FS) *DisplayEngine {
 			TotalLines:   0,
 			VisibleLines: config.Height,
 		},
-		output: os.Stdout, // Default to stdout only
-		fs:     embeddedFS,
+		output:    writer,
+		stdoutBuf: writer,
+		fs:        embeddedFS,
 	}
 }
 
@@ -281,27 +286,38 @@ func (de *DisplayEngine) SetBBSConnection(bbsConn io.Writer) {
 	if bbsConn != nil {
 		// Output only to BBS connection (user terminal)
 		de.output = bbsConn
+		de.stdoutBuf = nil // BBS connection doesn't use stdout buffer
 	} else {
-		// Fall back to console only
-		de.output = os.Stdout
+		// Fall back to console only with buffered writer
+		de.stdoutBuf = bufio.NewWriter(os.Stdout)
+		de.output = de.stdoutBuf
 	}
 }
 
 // Display displays the content of an ANSI file
 func (de *DisplayEngine) Display(filePath string, user User) error {
 	err := de.DisplayWithOverlay(filePath, user, "")
-	// Flush output to ensure content is sent to terminal (critical for buffered BBS connections)
+	// Flush output immediately - critical for Windows 7 console
 	de.flushOutput()
 	return err
 }
 
 // flushOutput flushes buffered output if the writer supports it
 func (de *DisplayEngine) flushOutput() {
+	// Flush bufio.Writer if present
+	if de.stdoutBuf != nil {
+		de.stdoutBuf.Flush()
+	}
+
 	if flusher, ok := de.output.(interface{ Flush() error }); ok {
 		if err := flusher.Flush(); err != nil {
 			log.Printf("Warning: Failed to flush output: %v", err)
 		}
 	}
+
+	// Force Windows console to flush
+	os.Stdout.Sync()
+	os.Stderr.Sync()
 }
 
 // DisplayWithOverlay displays the content of an ANSI file with optional overlay text
@@ -492,10 +508,10 @@ func (de *DisplayEngine) renderNormal(lines []string) error {
 		// Last line is the last one we're displaying in the viewport
 		isLastLine := i == linesToDisplay-1
 		de.printLine(line, isLastLine)
-
-		// Optional delay between lines
-		time.Sleep(10 * time.Millisecond)
 	}
+
+	// Force output flush after rendering all lines
+	de.flushOutput()
 	return nil
 }
 

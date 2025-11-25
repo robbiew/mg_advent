@@ -30,6 +30,30 @@ type BBSConnection struct {
 	isConnected  bool
 }
 
+// NewBBSConnectionFromSocket creates a BBS connection from a socket handle passed on command line
+// This is faster than reading from door32.sys and is Mystic's recommended method
+func NewBBSConnectionFromSocket(socketHandle int, dropfilePath string) (*BBSConnection, error) {
+	conn := &BBSConnection{}
+
+	logrus.WithField("socketHandle", socketHandle).Info("Creating BBS connection directly from socket handle")
+
+	// Create socket connection from handle
+	socketConn, err := CreateSocketFromHandle(socketHandle)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create socket from handle %d: %w", socketHandle, err)
+	}
+
+	logrus.Info("Socket connection created successfully")
+
+	// No stabilization delay needed - socket is already ready
+	conn.connType = ConnectionSocket
+	conn.socketConn = socketConn
+	conn.isConnected = true
+
+	logrus.Info("BBS connection initialized from command-line socket handle")
+	return conn, nil
+}
+
 // NewBBSConnection creates a new BBS connection based on platform and dropfile
 func NewBBSConnection(dropfilePath, socketHost string) (*BBSConnection, error) {
 	conn := &BBSConnection{}
@@ -73,8 +97,21 @@ func NewBBSConnection(dropfilePath, socketHost string) (*BBSConnection, error) {
 				logrus.WithField("handle", door32Info.SocketHandle).Info("Successfully inherited socket handle from parent BBS process")
 			}
 
+			// Give Windows 7 BBS systems time to fully establish the connection
+			// This prevents socket WSAEWOULDBLOCK errors on first write
+			logrus.Info("Starting 200ms socket stabilization delay")
+			time.Sleep(200 * time.Millisecond)
+			logrus.Info("Socket stabilization delay completed")
+
 			conn.socketConn = socketConn
 			conn.isConnected = true
+
+			// CRITICAL: Send null byte to "wake up" Mystic BBS output buffering
+			// Mystic on Windows 7 buffers door output until it receives data
+			logrus.Info("Sending wake-up byte to Mystic BBS")
+			socketConn.Write([]byte{0})
+			time.Sleep(50 * time.Millisecond) // Give Mystic time to process
+			logrus.Info("BBSConnection initialization complete")
 		} else {
 			// Local or serial mode
 			conn.connType = ConnectionStdio
@@ -343,7 +380,7 @@ func (bc *BBSConnection) Write(p []byte) (n int, err error) {
 	}
 }
 
-// Flush flushes any buffered output
+// Flush flushes any buffered output AND waits for it to transmit
 func (bc *BBSConnection) Flush() error {
 	if !bc.isConnected {
 		return fmt.Errorf("not connected")
@@ -351,7 +388,10 @@ func (bc *BBSConnection) Flush() error {
 
 	switch bc.connType {
 	case ConnectionSocket:
-		// Sockets are unbuffered, nothing to flush
+		// CRITICAL: Windows sockets need time to transmit buffered data
+		// Wait up to 100ms for output to drain (like ODoors' ODWaitDrain)
+		//logrus.Debug("Waiting for socket output to drain...")
+		time.Sleep(100 * time.Millisecond)
 		return nil
 	case ConnectionStdio:
 		return bc.stdoutWriter.Flush()
