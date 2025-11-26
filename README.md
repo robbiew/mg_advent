@@ -4,6 +4,34 @@
 
 An interactive BBS door program that displays ANSI Christmas art, a new one each day in December. Browse past collections as well. Compatible with all modern BBS systems that support Door32 dropfiles -- Windows and Linux.
 
+## Unified Repository Structure (2025+)
+
+This repository now contains all versions of the Advent Calendar:
+
+- **Go/Modern (Linux, Windows, Mac):** Main Go codebase in root (`cmd/`, `internal/`, etc.)
+- **DOS (Legacy):** All Turbo Pascal and DOS-specific files are in `dos/` (see below)
+
+### Directory Layout
+
+```
+mg_advent/
+├── cmd/           # Go entry point
+├── internal/      # Go core modules
+├── art/           # Modern art assets (Go version)
+├── dos/           # All DOS/Turbo Pascal code and assets
+│   ├── ADVENT.PAS
+│   ├── *.DAT
+│   ├── build_utils/
+│   └── art/
+│       ├── 2023/
+│       ├── 2024/
+│       ├── 2025/
+│       └── common/
+└── ...
+```
+
+## Quick Setup
+
 ## Quick Setup
 
 ### Windows
@@ -31,6 +59,21 @@ DROPFILE_PATH="/opt/bbs/temp/${NODE}/door32.sys"
 ```
 
 Make executable: `chmod +x advent.sh advent-linux-amd64`
+
+### DOS (Legacy)
+
+All DOS code and assets are in `dos/`. You need Turbo Pascal 7 or compatible.
+
+**To build/run in DOSBox or real DOS:**
+
+1. Enter the `dos/` directory:
+	```
+	cd dos
+	```
+2. Open `ADVENT.PAS` in Turbo Pascal 7 and compile, or use batch/scripts in `build_utils/` if available.
+3. Run the resulting executable in DOS or DOSBox.
+
+Art assets for DOS are in `dos/art/` (identical structure to modern art/).
 
 ## Command Line Options
 
@@ -106,3 +149,9 @@ GOOS=windows GOARCH=386 CGO_ENABLED=0 ~/go/bin/go1.20.14 build -ldflags="-s -w" 
 ## License
 
 This project is released under the terms specified in the LICENSE file.
+
+---
+
+### Migration Note (2025)
+
+The `dos/` directory was migrated from the former `mg_advent_DOS` repo. All legacy DOS code and art is now maintained here for unified development and preservation.
