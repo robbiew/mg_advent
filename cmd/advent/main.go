@@ -31,6 +31,7 @@ var (
 	disableArt   = flag.Bool("debug-disable-art", false, "disable art validation")
 	dropfilePath = flag.String("path", "", "path to door32.sys file")
 	debugMode    = flag.Bool("debug", false, "enable debug logging")
+	logonMode    = flag.Bool("logon", false, "logon mode: show current day's door, then COMEBACK.ANS and exit")
 )
 
 func main() {
@@ -272,6 +273,12 @@ func main() {
 		}
 	}
 
+	// Handle logon mode - skip welcome screen and go directly to current day's door
+	if *logonMode {
+		runLogonMode(displayEngine, artManager, navigator, inputHandler, sessionManager, initialState, user, validator, bbsConn)
+		return
+	}
+
 	// Start session manager
 	sessionManager.Start()
 	defer sessionManager.Stop()
@@ -452,13 +459,13 @@ func displayNotYet(displayEngine *display.DisplayEngine, artManager *art.Manager
 		flusher.Flush()
 	}
 
-	// Wait for any key press
+	// Wait for key press or 5 seconds, whichever comes first
 	if inputHandler != nil {
 		// Open input handler temporarily if not already open
 		wasOpen := true
 		if err := inputHandler.Open(); err != nil {
-			// If we can't open input handler, fall back to simple wait
-			time.Sleep(3 * time.Second)
+			// If we can't open input handler, fall back to 5 second wait
+			time.Sleep(5 * time.Second)
 			return
 		}
 		defer func() {
@@ -467,11 +474,25 @@ func displayNotYet(displayEngine *display.DisplayEngine, artManager *art.Manager
 			}
 		}()
 
-		// Wait for any key press
-		inputHandler.ReadKey()
+		// Create a channel for key press
+		keyPressed := make(chan bool, 1)
+
+		// Start goroutine to wait for key press
+		go func() {
+			inputHandler.ReadKey()
+			keyPressed <- true
+		}()
+
+		// Wait for either key press or timeout
+		select {
+		case <-keyPressed:
+			logrus.Info("NOTYET: key pressed, exiting")
+		case <-time.After(5 * time.Second):
+			logrus.Info("NOTYET: timeout reached, exiting")
+		}
 	} else {
-		// Fallback: simple pause
-		time.Sleep(3 * time.Second)
+		// Fallback: 5 second pause
+		time.Sleep(5 * time.Second)
 	}
 }
 
@@ -789,6 +810,123 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 	}
 
 	cleanup(displayEngine, inputHandler, sessionManager)
+}
+
+func runLogonMode(displayEngine *display.DisplayEngine, artManager *art.Manager,
+	navigator *navigation.Navigator, inputHandler *input.InputHandler,
+	sessionManager *session.Manager, state navigation.State, user display.User,
+	validator *validation.Validator, bbsConn *bbs.BBSConnection) {
+
+	// Check if it's December (unless date validation is disabled)
+	if !*disableDate {
+		if err := validator.ValidateDate(); err != nil {
+			// Not December - show NOTYET.ANS with 5-second timeout
+			notYetPath := artManager.GetPath(state.CurrentYear, 0, "notyet")
+			if notYetPath != "" {
+				displayEngine.Display(notYetPath, user)
+			}
+
+			// Wait for key press or 5 seconds, whichever comes first
+			if inputHandler != nil {
+				// Open input handler temporarily if not already open
+				if err := inputHandler.Open(); err == nil {
+					defer inputHandler.Close()
+
+					// Create a channel for key press
+					keyPressed := make(chan bool, 1)
+
+					// Start goroutine to wait for key press
+					go func() {
+						inputHandler.ReadKey()
+						keyPressed <- true
+					}()
+
+					// Wait for either key press or timeout
+					select {
+					case <-keyPressed:
+						logrus.Info("NOTYET: key pressed, exiting")
+					case <-time.After(5 * time.Second):
+						logrus.Info("NOTYET: timeout reached, exiting")
+					}
+				}
+			}
+			return
+		}
+	}
+
+	// It's December - get current day
+	now := time.Now()
+	currentDay := now.Day()
+	if currentDay > 25 {
+		currentDay = 25
+	}
+
+	// Start session manager
+	sessionManager.Start()
+	defer sessionManager.Stop()
+
+	// Open input handler
+	if err := inputHandler.Open(); err != nil {
+		logrus.WithError(err).Error("Failed to open input handler in logon mode")
+		return
+	}
+	defer inputHandler.Close()
+
+	// Hide cursor and clear screen
+	displayEngine.HideCursor()
+	displayEngine.ClearScreen()
+	defer displayEngine.ShowCursor()
+
+	// Display current day's door art
+	dayArtPath := artManager.GetPath(state.CurrentYear, currentDay, "day")
+	if dayArtPath != "" {
+		if err := displayEngine.Display(dayArtPath, user); err != nil {
+			logrus.WithError(err).Error("Failed to display day art in logon mode")
+		}
+	}
+
+	// Wait for any key press
+	logrus.Info("Logon mode: waiting for key press on day art")
+	_, _, err := inputHandler.ReadKey()
+	if err != nil {
+		logrus.WithError(err).Error("Failed to read key in logon mode")
+	}
+
+	// Clear screen
+	displayEngine.ClearScreen()
+
+	// Display COMEBACK.ANS
+	comebackPath := artManager.GetPath(state.CurrentYear, 0, "comeback")
+	if comebackPath != "" {
+		if err := displayEngine.Display(comebackPath, user); err != nil {
+			logrus.WithError(err).Error("Failed to display comeback art in logon mode")
+		}
+	}
+
+	// Wait for key press or 5 seconds, whichever comes first
+	logrus.Info("Logon mode: waiting for key press or 5 seconds on COMEBACK.ANS")
+
+	// Create a channel for key press
+	keyPressed := make(chan bool, 1)
+
+	// Start goroutine to wait for key press
+	go func() {
+		inputHandler.ReadKey()
+		keyPressed <- true
+	}()
+
+	// Wait for either key press or timeout
+	select {
+	case <-keyPressed:
+		logrus.Info("Logon mode: key pressed, exiting")
+	case <-time.After(5 * time.Second):
+		logrus.Info("Logon mode: timeout reached, exiting")
+	}
+
+	// Clean up
+	displayEngine.ShowCursor()
+	displayEngine.ClearScreen()
+	fmt.Print("\033[0m") // Reset colors
 }
 
 func cleanup(displayEngine *display.DisplayEngine, inputHandler *input.InputHandler, sessionManager *session.Manager) {

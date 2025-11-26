@@ -9,7 +9,7 @@ An interactive BBS door program that displays ANSI Christmas art, a new one each
 This repository now contains all versions of the Advent Calendar:
 
 - **Go/Modern (Linux, Windows, Mac):** Main Go codebase in root (`cmd/`, `internal/`, etc.)
-- **DOS (Legacy):** All Turbo Pascal and DOS-specific files are in `dos/` (see below)
+- **DOS (Legacy):** All Turbo Pascal and DOS-specific files are in `dos/` (NOT 100% functional!! see below)
 
 ### Directory Layout
 
@@ -79,9 +79,7 @@ Art assets for DOS are in `dos/art/` (identical structure to modern art/).
 
 ```text
 -path string           Path to door32.sys file
--local                 Run in local UTF-8 mode (not BBS mode)
--socket-host string    BBS server IP address (default "127.0.0.1")
--debug                 Enable debug logging
+-logon                 Logon mode: show current day's door, then COMEBACK.ANS and exit
 -debug-date string     Override date (YYYY-MM-DD)
 -debug-disable-date    Disable date validation
 -debug-disable-art     Disable art validation
