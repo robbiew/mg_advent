@@ -17,7 +17,7 @@ RELEASE_DIR="dist/releases"
 
 # Platform configurations: "platform-name:binary-name:archive-format"
 PLATFORMS=(
-    "windows-386:advent-windows-386.exe:zip"
+    "windows-386:mg-advent.exe:zip"
     "linux-amd64:advent-linux-amd64:tar.gz"
     "linux-arm64:advent-linux-arm64:tar.gz"
 )
@@ -113,7 +113,7 @@ done
 if [ $missing_binaries -eq 1 ]; then
     echo ""
     echo "ERROR: Some binaries are missing. Please run the build script first:"
-    echo "  ./build.sh"
+    echo "  ./scripts/build.sh"
     exit 1
 fi
 

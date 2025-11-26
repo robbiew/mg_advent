@@ -13,7 +13,7 @@ This repository now contains all versions of the Advent Calendar:
 
 ### Directory Layout
 
-```
+```text
 mg_advent/
 ├── cmd/           # Go entry point
 ├── internal/      # Go core modules
@@ -32,8 +32,6 @@ mg_advent/
 
 ## Quick Setup
 
-## Quick Setup
-
 ### Windows
 
 ```batch
@@ -44,7 +42,7 @@ if "%NODE%"=="" set NODE=1
 cd /d "C:\bbs\doors\advent"
 set DROPFILE_PATH=C:\bbs\temp\%NODE%\door32.sys
 
-advent.exe -path "%DROPFILE_PATH%"
+mg-advent.exe -path "%DROPFILE_PATH%"
 ```
 
 ### Linux
@@ -67,17 +65,19 @@ All DOS code and assets are in `dos/`. You need Turbo Pascal 7 or compatible.
 **To build/run in DOSBox or real DOS:**
 
 1. Enter the `dos/` directory:
-	```
-	cd dos
-	```
-2. Open `ADVENT.PAS` in Turbo Pascal 7 and compile, or use batch/scripts in `build_utils/` if available.
-3. Run the resulting executable in DOS or DOSBox.
+
+ ```text
+ cd dos
+ ```
+
+1. Open `ADVENT.PAS` in Turbo Pascal 7 and compile, or use batch/scripts in `build_utils/` if available.
+2. Run the resulting executable in DOS or DOSBox.
 
 Art assets for DOS are in `dos/art/` (identical structure to modern art/).
 
 ## Command Line Options
 
-```
+```text
 -path string           Path to door32.sys file
 -local                 Run in local UTF-8 mode (not BBS mode)
 -socket-host string    BBS server IP address (default "127.0.0.1")
@@ -99,10 +99,10 @@ git clone https://github.com/robbiew/mg_advent.git
 cd mg_advent
 
 # Linux/Mac build (builds Linux amd64, arm64, and Windows 386)
-./build.sh
+./scripts/build.sh
 
 # Windows build
-build.bat
+scripts\build.bat
 ```
 
 ### For Windows 7 32-bit Compatibility
@@ -110,6 +110,7 @@ build.bat
 Windows 7 requires Go 1.20 (last version with Windows 7 support).
 
 **One-time setup:**
+
 ```bash
 # Install Go 1.20.14 toolchain
 go install golang.org/dl/go1.20.14@latest
@@ -117,18 +118,29 @@ go1.20.14 download
 ```
 
 **Building:**
+
 ```bash
 # Linux/Mac (cross-compile)
-./build.sh  # Automatically uses go1.20.14 for Windows builds
+./scripts/build.sh  # Automatically uses go1.20.14 for Windows builds
 
 # Windows
-build.bat   # Checks for go1.20.14, shows install instructions if needed
+scripts\build.bat   # Checks for go1.20.14, shows install instructions if needed
 
 # Manual build
-GOOS=windows GOARCH=386 CGO_ENABLED=0 ~/go/bin/go1.20.14 build -ldflags="-s -w" -o dist/advent-windows-386.exe ./cmd/advent
+GOOS=windows GOARCH=386 CGO_ENABLED=0 ~/go/bin/go1.20.14 build -ldflags="-s -w" -o dist/mg-advent.exe ./cmd/advent
 ```
 
-**Note:** The `build.sh` and `build.bat` scripts automatically detect and use Go 1.20.14 for Windows builds to ensure Windows 7 compatibility.
+**Note:** The build scripts automatically:
+
+- Detect and use Go 1.20.14 for Windows builds (Windows 7 compatibility)
+- Embed a Windows application manifest to prevent the 15-20 second delay when renaming executables on Windows 7
+
+**Windows 7 Rename Delay Fix:** The build scripts will automatically embed a manifest if `windres` is available. To enable this:
+
+**Linux/Mac:** `sudo apt-get install mingw-w64` or `brew install mingw-w64`
+**Windows:** Install MinGW-w64 from https://www.mingw-w64.org/ or `choco install mingw`
+
+If `windres` is not available, the build will still succeed but renamed executables may experience a 15-20 second startup delay on Windows 7. See [`WINDOWS7-FIX.md`](WINDOWS7-FIX.md) for details.
 
 ## Testing
 
