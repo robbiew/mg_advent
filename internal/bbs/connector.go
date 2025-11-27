@@ -390,7 +390,6 @@ func (bc *BBSConnection) Flush() error {
 	case ConnectionSocket:
 		// CRITICAL: Windows sockets need time to transmit buffered data
 		// Wait up to 100ms for output to drain (like ODoors' ODWaitDrain)
-		//logrus.Debug("Waiting for socket output to drain...")
 		time.Sleep(100 * time.Millisecond)
 		return nil
 	case ConnectionStdio:

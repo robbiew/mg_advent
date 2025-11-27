@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"os"
 	"strings"
 	"unicode/utf8"
@@ -157,7 +156,6 @@ func (de *DisplayEngine) renderMenuBar() {
 	footerLines, err := de.loadAndProcess("art/common/FOOTER.ANS")
 	if err != nil {
 		// Fallback if FOOTER.ANS doesn't exist
-		log.Printf("Warning: Could not load FOOTER.ANS: %v", err)
 		return
 	}
 
@@ -310,9 +308,7 @@ func (de *DisplayEngine) flushOutput() {
 	}
 
 	if flusher, ok := de.output.(interface{ Flush() error }); ok {
-		if err := flusher.Flush(); err != nil {
-			log.Printf("Warning: Failed to flush output: %v", err)
-		}
+		flusher.Flush()
 	}
 
 	// Force Windows console to flush
@@ -335,7 +331,6 @@ func (de *DisplayEngine) DisplayWithOverlay(filePath string, user User, overlayT
 		content, fallbackErr = de.loadAndProcess(missingPath)
 		if fallbackErr != nil {
 			// Only show error if MISSING.ANS itself is missing
-			log.Printf("ERROR: Failed to load MISSING.ANS fallback: %v", fallbackErr)
 			de.output.Write([]byte("Error: Unable to load art. Please contact the Sysop.\r\n"))
 			return err
 		}
@@ -347,7 +342,6 @@ func (de *DisplayEngine) DisplayWithOverlay(filePath string, user User, overlayT
 	}
 
 	if len(content) == 0 {
-		log.Printf("ERROR: File %s is empty", filePath)
 		de.output.Write([]byte("Error: The art file is empty or invalid.\r\n"))
 		return fmt.Errorf("empty file")
 	}
@@ -446,7 +440,6 @@ func (de *DisplayEngine) processCP437(content []byte) []string {
 		// Convert line from CP437 to UTF-8 for local display
 		utf8Line, err := charmap.CodePage437.NewDecoder().String(line)
 		if err != nil {
-			log.Printf("Error converting to UTF-8: %v", err)
 			utf8Line = line // Fallback to original
 		}
 
@@ -632,11 +625,6 @@ const (
 	HideCursor  = Esc + "?25l"
 	ShowCursor  = Esc + "?25h"
 )
-
-// MoveCursor moves cursor to X, Y location
-func MoveCursor(x int, y int) {
-	fmt.Printf(Esc+"%d;%df", y, x)
-}
 
 // printLine handles newline behavior per mode
 func (de *DisplayEngine) printLine(line string, isLastLine bool) {

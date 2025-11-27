@@ -64,15 +64,11 @@ func main() {
 		bbsConn.Flush()
 	}
 
-	// Always enable info logging for Windows to debug the 20-second delay
-	if runtime.GOOS == "windows" {
-		logrus.SetLevel(logrus.InfoLevel)
-		// CRITICAL: Make logrus write to STDOUT instead of STDERR
-		// Windows 7 might be buffering mixed stdout/stderr differently
-		logrus.SetOutput(os.Stdout)
-	} else if *debugMode {
+	// Set log level based on debug flag
+	if *debugMode {
 		logrus.SetLevel(logrus.DebugLevel)
 	} else {
+		// Default to ErrorLevel to hide info/debug messages from sysop console
 		logrus.SetLevel(logrus.ErrorLevel)
 	}
 	logrus.SetFormatter(&logrus.TextFormatter{
@@ -130,11 +126,6 @@ func main() {
 		logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: BBS connection created")
 		if connErr != nil {
 			logrus.WithError(connErr).Error("Failed to create BBS connection - continuing in fallback mode")
-			fmt.Println("ERROR: Unable to establish BBS connection.")
-			fmt.Println("This door requires proper BBS integration to function.")
-			fmt.Printf("Error: %v\n", connErr)
-			fmt.Println("\nPress any key to exit...")
-			fmt.Scanln()
 			return
 		}
 		logrus.Info("BBS connection established - all I/O will go through inherited socket")
@@ -155,12 +146,10 @@ func main() {
 	var sessionManager *session.Manager
 	sessionManager = session.NewManager(idleTimeout, maxTimeout,
 		func() {
-			fmt.Println("\nIdle timeout reached... exiting.")
 			cleanup(displayEngine, inputHandler, sessionManager)
 			os.Exit(0)
 		},
 		func() {
-			fmt.Println("\nMaximum session time reached... exiting.")
 			cleanup(displayEngine, inputHandler, sessionManager)
 			os.Exit(0)
 		})
@@ -216,13 +205,11 @@ func main() {
 	// Validate terminal size
 	if err := validator.ValidateTerminalSize(width, height); err != nil {
 		logrus.WithError(err).Warn("Terminal size validation failed - continuing anyway")
-		fmt.Printf("WARNING: Terminal size %dx%d may not be optimal\n", width, height)
 	}
 
 	// Validate ANSI emulation
 	if err := validator.ValidateEmulation(user.Emulation); err != nil {
 		logrus.WithError(err).Warn("ANSI emulation validation failed - continuing anyway")
-		fmt.Printf("WARNING: Terminal emulation type %d may not be fully supported\n", user.Emulation)
 	}
 
 	// Get initial navigation state
@@ -231,10 +218,6 @@ func main() {
 	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Got initial state")
 	if err != nil {
 		logrus.WithError(err).Error("Failed to get initial navigation state")
-		fmt.Println("ERROR: Unable to initialize door navigation.")
-		fmt.Printf("Error: %v\n", err)
-		fmt.Println("\nPress any key to exit...")
-		fmt.Scanln()
 		return
 	}
 
@@ -252,11 +235,6 @@ func main() {
 	if !*disableArt {
 		if err := validator.ValidateArtFiles(initialState.CurrentYear); err != nil {
 			logrus.WithError(err).Error("Art file validation failed")
-			fmt.Println("ERROR: Required art files are missing.")
-			fmt.Printf("Error: %v\n", err)
-			fmt.Println("The door cannot function without proper art files.")
-			fmt.Println("\nPress any key to exit...")
-			fmt.Scanln()
 			return
 		}
 	}
@@ -265,10 +243,6 @@ func main() {
 	if *debugDate != "" {
 		if err := applyDateOverride(&initialState, *debugDate); err != nil {
 			logrus.WithError(err).Error("Failed to apply date override")
-			fmt.Printf("ERROR: Invalid debug date specified: %s\n", *debugDate)
-			fmt.Printf("Error: %v\n", err)
-			fmt.Println("\nPress any key to exit...")
-			fmt.Scanln()
 			return
 		}
 	}
@@ -287,10 +261,6 @@ func main() {
 	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: About to open input handler")
 	if err := inputHandler.Open(); err != nil {
 		logrus.WithError(err).Error("Failed to open input handler")
-		fmt.Println("ERROR: Unable to initialize user input system.")
-		fmt.Printf("Error: %v\n", err)
-		fmt.Println("\nPress any key to exit...")
-		fmt.Scanln()
 		return
 	}
 	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Input handler opened")
