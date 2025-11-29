@@ -100,8 +100,40 @@ func (m *Manager) GetPath(year int, day int, screenType string) string {
 	case "comeback":
 		return path.Join(commonDir, "COMEBACK.ANS")
 	case "day":
-		fileName := fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(year)[2:])
-		return path.Join(yearDir, fileName)
+		// Try both zero-padded (01_DEC25.ANS) and single-digit (1_DEC25.ANS) formats
+		yearSuffix := strconv.Itoa(year)[2:]
+
+		// First try the format that matches the year's convention
+		var primaryFileName, fallbackFileName string
+
+		// For 2025 and later, try zero-padded format first
+		if year >= 2025 {
+			// Zero-padded format (e.g., 01_DEC25.ANS)
+			primaryFileName = fmt.Sprintf("%02d_DEC%s.ANS", day, yearSuffix)
+			// Single-digit format as fallback (e.g., 1_DEC25.ANS)
+			fallbackFileName = fmt.Sprintf("%d_DEC%s.ANS", day, yearSuffix)
+		} else {
+			// For 2024 and earlier, try single-digit format first
+			primaryFileName = fmt.Sprintf("%d_DEC%s.ANS", day, yearSuffix)
+			// Zero-padded format as fallback
+			fallbackFileName = fmt.Sprintf("%02d_DEC%s.ANS", day, yearSuffix)
+		}
+
+		// Try primary format first
+		primaryPath := path.Join(yearDir, primaryFileName)
+		if _, err := fs.Stat(m.fs, primaryPath); err == nil {
+			return primaryPath
+		}
+
+		// Try fallback format if primary format doesn't exist
+		fallbackPath := path.Join(yearDir, fallbackFileName)
+		if _, err := fs.Stat(m.fs, fallbackPath); err == nil {
+			return fallbackPath
+		}
+
+		// If neither exists, return the primary format path
+		// This will eventually fall back to MISSING.ANS in the display engine
+		return primaryPath
 	case "missing":
 		return path.Join(commonDir, "MISSING.ANS")
 	case "notyet":

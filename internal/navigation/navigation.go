@@ -293,8 +293,39 @@ func (n *Navigator) calculateMaxDay() int {
 // getDayArtPath returns the path to a day's art file
 func (n *Navigator) getDayArtPath(year, day int) string {
 	yearDir := path.Join(n.baseArtDir, strconv.Itoa(year))
-	fileName := fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(year)[2:])
-	return path.Join(yearDir, fileName)
+	yearSuffix := strconv.Itoa(year)[2:]
+
+	// Try both zero-padded (01_DEC25.ANS) and single-digit (1_DEC25.ANS) formats
+	var primaryFileName, fallbackFileName string
+
+	// For 2025 and later, try zero-padded format first
+	if year >= 2025 {
+		// Zero-padded format (e.g., 01_DEC25.ANS)
+		primaryFileName = fmt.Sprintf("%02d_DEC%s.ANS", day, yearSuffix)
+		// Single-digit format as fallback (e.g., 1_DEC25.ANS)
+		fallbackFileName = fmt.Sprintf("%d_DEC%s.ANS", day, yearSuffix)
+	} else {
+		// For 2024 and earlier, try single-digit format first
+		primaryFileName = fmt.Sprintf("%d_DEC%s.ANS", day, yearSuffix)
+		// Zero-padded format as fallback
+		fallbackFileName = fmt.Sprintf("%02d_DEC%s.ANS", day, yearSuffix)
+	}
+
+	// Try primary format first
+	primaryPath := path.Join(yearDir, primaryFileName)
+	if _, err := fs.Stat(n.fs, primaryPath); err == nil {
+		return primaryPath
+	}
+
+	// Try fallback format if primary format doesn't exist
+	fallbackPath := path.Join(yearDir, fallbackFileName)
+	if _, err := fs.Stat(n.fs, fallbackPath); err == nil {
+		return fallbackPath
+	}
+
+	// If neither exists, return the primary format path
+	// This will eventually fall back to MISSING.ANS in the display engine
+	return primaryPath
 }
 
 // getWelcomeArtPath returns the path to the welcome art file

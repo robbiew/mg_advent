@@ -24,9 +24,12 @@ PLATFORMS=(
 
 # Files to include in all packages
 COMMON_FILES=(
-    "dist/FILE_ID.ANS"
-    "dist/INFOFILE.ANS"
-    "dist/MEMBERS.ANS"
+    "internal/embedded/FILE_ID.ANS"
+    "internal/embedded/FILE_ID.DIZ"
+    "internal/embedded/INFOFILE.ANS"
+    "internal/embedded/LICENSE.TXT"
+    "internal/embedded/MEMBERS.ANS"
+    "README.TXT"
 )
 
 # Create release directory
@@ -53,17 +56,7 @@ create_package() {
     fi
     cp "${OUTPUT_DIR}/${binary_name}" "$temp_dir/"
     
-    # Copy platform-specific launcher script
-    if [[ "$platform_name" == windows-* ]]; then
-        if [ -f "scripts/advent.bat" ]; then
-            cp "scripts/advent.bat" "$temp_dir/"
-        fi
-    else
-        if [ -f "scripts/advent.sh" ]; then
-            cp "scripts/advent.sh" "$temp_dir/"
-            chmod +x "$temp_dir/advent.sh"
-        fi
-    fi
+    # Platform-specific launcher scripts are no longer included
     
     # Copy essential ANS files
     for file in "${COMMON_FILES[@]}"; do
