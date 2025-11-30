@@ -106,6 +106,11 @@ func (n *Navigator) Navigate(direction Direction, currentState State) (newState 
 		return n.navigateFromComeback(direction, currentState)
 	case ScreenYearSelect:
 		return n.navigateFromYearSelect(direction, currentState)
+	case ScreenInfo, ScreenMembers:
+		// Info and Members screens only support scrolling (handled elsewhere)
+		// Arrow keys, Page Up/Down, Home/End should be ignored for navigation
+		// Q/ESC handling is done in main loop
+		return currentState, "", nil
 	default:
 		return currentState, "", fmt.Errorf("unknown screen type: %d", currentState.Screen)
 	}

@@ -43,8 +43,6 @@ func (m *Manager) Validate(year int) error {
 
 	// Required common files (year-independent)
 	requiredCommonFiles := []string{
-		path.Join(commonDir, "WELCOME.ANS"),
-		path.Join(commonDir, "GOODBYE.ANS"),
 		path.Join(commonDir, "COMEBACK.ANS"),
 		path.Join(commonDir, "MISSING.ANS"),
 		path.Join(commonDir, "NOTYET.ANS"),
@@ -96,7 +94,8 @@ func (m *Manager) GetPath(year int, day int, screenType string) string {
 		// Fall back to root MEMBERS.ANS
 		return path.Join(m.baseDir, "MEMBERS.ANS")
 	case "goodbye", "exit":
-		return path.Join(commonDir, "GOODBYE.ANS")
+		// Always use year-specific GOODBYE.ANS (like WELCOME.ANS)
+		return path.Join(yearDir, "GOODBYE.ANS")
 	case "comeback":
 		return path.Join(commonDir, "COMEBACK.ANS")
 	case "day":
@@ -243,7 +242,7 @@ func (m *Manager) GetCacheSize() int {
 func (m *Manager) PreloadArt(year int, maxDay int) error {
 	logrus.WithField("year", year).Info("Preloading art files")
 
-	// Preload common screens
+	// Preload common and year-specific screens
 	screens := []string{"welcome", "goodbye", "comeback"}
 	for _, screen := range screens {
 		filePath := m.GetPath(year, 0, screen)

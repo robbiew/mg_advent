@@ -266,12 +266,16 @@ func main() {
 	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Input handler opened")
 	defer inputHandler.Close()
 
-	// Hide cursor and clear screen for both BBS and local modes
-	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Hiding cursor and clearing screen")
+	// Hide cursor, enable blink mode, and clear screen for both BBS and local modes
+	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Hiding cursor, enabling blink mode, and clearing screen")
 	displayEngine.HideCursor()
+	displayEngine.EnableBlinkMode() // Disable ICE mode to enable ANSI blink
 	displayEngine.ClearScreen()
 	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Screen ready, entering main loop")
-	defer displayEngine.ShowCursor() // Ensure cursor is shown on exit
+	defer func() {
+		displayEngine.DisableBlinkMode() // Re-enable ICE mode on exit
+		displayEngine.ShowCursor()       // Ensure cursor is shown on exit
+	}()
 
 	// Main application loop
 	runMainLoop(displayEngine, artManager, navigator, inputHandler, sessionManager, initialState, user)
@@ -634,7 +638,23 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 				exitPath := artManager.GetPath(currentState.CurrentYear, 0, "goodbye")
 				if exitPath != "" {
 					displayEngine.Display(exitPath, user)
-					time.Sleep(2 * time.Second)
+
+					// Wait for key press or 10 seconds, whichever comes first (no visible prompt)
+					keyPressed := make(chan bool, 1)
+
+					// Start goroutine to wait for key press
+					go func() {
+						inputHandler.ReadKey()
+						keyPressed <- true
+					}()
+
+					// Wait for either key press or timeout
+					select {
+					case <-keyPressed:
+						logrus.Info("GOODBYE: key pressed, exiting")
+					case <-time.After(10 * time.Second):
+						logrus.Info("GOODBYE: timeout reached, exiting")
+					}
 				}
 				break
 			} else if currentState.Screen == navigation.ScreenInfo || currentState.Screen == navigation.ScreenMembers {
@@ -842,10 +862,14 @@ func runLogonMode(displayEngine *display.DisplayEngine, artManager *art.Manager,
 	}
 	defer inputHandler.Close()
 
-	// Hide cursor and clear screen
+	// Hide cursor, enable blink mode, and clear screen
 	displayEngine.HideCursor()
+	displayEngine.EnableBlinkMode() // Disable ICE mode to enable ANSI blink
 	displayEngine.ClearScreen()
-	defer displayEngine.ShowCursor()
+	defer func() {
+		displayEngine.DisableBlinkMode() // Re-enable ICE mode on exit
+		displayEngine.ShowCursor()
+	}()
 
 	// Display current day's door art
 	dayArtPath := artManager.GetPath(state.CurrentYear, currentDay, "day")
@@ -894,6 +918,7 @@ func runLogonMode(displayEngine *display.DisplayEngine, artManager *art.Manager,
 	}
 
 	// Clean up
+	displayEngine.DisableBlinkMode() // Re-enable ICE mode
 	displayEngine.ShowCursor()
 	displayEngine.ClearScreen()
 	fmt.Print("\033[0m") // Reset colors
@@ -902,6 +927,7 @@ func runLogonMode(displayEngine *display.DisplayEngine, artManager *art.Manager,
 func cleanup(displayEngine *display.DisplayEngine, inputHandler *input.InputHandler, sessionManager *session.Manager) {
 	sessionManager.Stop()
 	inputHandler.Close()
+	displayEngine.DisableBlinkMode() // Re-enable ICE mode
 	displayEngine.ShowCursor()
 	displayEngine.ClearScreen() // ClearScreen already flushes
 	fmt.Print("\033[0m")        // Reset colors
