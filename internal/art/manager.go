@@ -43,7 +43,6 @@ func (m *Manager) Validate(year int) error {
 
 	// Required common files (year-independent)
 	requiredCommonFiles := []string{
-		path.Join(commonDir, "COMEBACK.ANS"),
 		path.Join(commonDir, "MISSING.ANS"),
 		path.Join(commonDir, "NOTYET.ANS"),
 	}
@@ -97,7 +96,8 @@ func (m *Manager) GetPath(year int, day int, screenType string) string {
 		// Always use year-specific GOODBYE.ANS (like WELCOME.ANS)
 		return path.Join(yearDir, "GOODBYE.ANS")
 	case "comeback":
-		return path.Join(commonDir, "COMEBACK.ANS")
+		// Always use year-specific COMEBACK.ANS (like WELCOME.ANS and GOODBYE.ANS)
+		return path.Join(yearDir, "COMEBACK.ANS")
 	case "day":
 		// Try both zero-padded (01_DEC25.ANS) and single-digit (1_DEC25.ANS) formats
 		yearSuffix := strconv.Itoa(year)[2:]
