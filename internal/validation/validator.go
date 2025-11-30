@@ -50,7 +50,6 @@ func (v *Validator) ValidateArtFiles(year int) error {
 
 	// Required common files (year-independent)
 	requiredCommonFiles := []string{
-		path.Join(commonDir, "COMEBACK.ANS"),
 		path.Join(commonDir, "MISSING.ANS"),
 		path.Join(commonDir, "NOTYET.ANS"),
 	}
@@ -58,6 +57,7 @@ func (v *Validator) ValidateArtFiles(year int) error {
 	// Required year-specific files
 	requiredYearFiles := []string{
 		path.Join(yearDir, "WELCOME.ANS"),
+		path.Join(yearDir, "COMEBACK.ANS"),
 		path.Join(yearDir, "GOODBYE.ANS"),
 	}
 

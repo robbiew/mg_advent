@@ -221,8 +221,13 @@ func main() {
 	}
 
 	// Apply debug overrides
-	if *disableDate {
-		logrus.Info("Date validation disabled by debug flag")
+	if *disableDate || *debugDate != "" {
+		if *disableDate {
+			logrus.Info("Date validation disabled by debug flag")
+		}
+		if *debugDate != "" {
+			logrus.Info("Date validation skipped due to debug-date override")
+		}
 	} else {
 		if err := validator.ValidateDate(); err != nil {
 			displayNotYet(displayEngine, artManager, initialState.CurrentYear, user, inputHandler, bbsConn)
@@ -397,10 +402,33 @@ func detectTerminalSize(bbsConn *bbs.BBSConnection) (width, height int) {
 	return 80, 25
 }
 
-func applyDateOverride(_ *navigation.State, _ string) error {
-	// Parse and apply debug date override
-	// Implementation would update state.CurrentDay and state.MaxDay
-	// Currently a stub - not implemented
+func applyDateOverride(state *navigation.State, dateStr string) error {
+	// Parse date string in YYYY-MM-DD format
+	parsedDate, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		return fmt.Errorf("invalid date format (expected YYYY-MM-DD): %w", err)
+	}
+
+	// Extract the day from the date
+	day := parsedDate.Day()
+
+	// Validate day is within advent calendar range (1-25)
+	if day < 1 || day > 25 {
+		return fmt.Errorf("day %d is out of advent calendar range (1-25)", day)
+	}
+
+	// Update state to simulate it being this date
+	// CurrentDay starts at 1, but MaxDay is set to the debug day
+	// This allows navigation from day 1 up to (and including) the debug day
+	state.CurrentDay = 1
+	state.MaxDay = day
+
+	logrus.WithFields(logrus.Fields{
+		"debugDate":  dateStr,
+		"currentDay": state.CurrentDay,
+		"maxDay":     state.MaxDay,
+	}).Info("Applied debug date override - simulating current date")
+
 	return nil
 }
 
@@ -610,7 +638,8 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 			// Get the latest year from available years
 			latestYear := currentState.AvailableYears[len(currentState.AvailableYears)-1]
 
-			if currentState.Screen == navigation.ScreenWelcome && currentState.CurrentYear == latestYear {
+			// Exit on Q/ESC from WELCOME or COMEBACK in the latest year
+			if (currentState.Screen == navigation.ScreenWelcome || currentState.Screen == navigation.ScreenComeback) && currentState.CurrentYear == latestYear {
 				// Only exit if we're on the welcome screen of the latest year (2025)
 				logrus.Info("User requested exit from latest year's welcome screen")
 				exitPath := artManager.GetPath(currentState.CurrentYear, 0, "goodbye")
@@ -665,8 +694,8 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 			}
 		}
 
-		// Handle year selection from welcome screen with numeric keys
-		if currentState.Screen == navigation.ScreenWelcome && char >= '1' && char <= '9' {
+		// Handle year selection from welcome/comeback screen with numeric keys
+		if (currentState.Screen == navigation.ScreenWelcome || currentState.Screen == navigation.ScreenComeback) && char >= '1' && char <= '9' {
 			yearIndex := int(char - '0')
 			newState, newArtPath, err := navigator.SelectYearByIndex(yearIndex, currentState)
 			if err != nil {
@@ -686,15 +715,15 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 			continue
 		}
 
-		// Handle Info/Members menu keys from welcome screen
-		if currentState.Screen == navigation.ScreenWelcome && (char == 'i' || char == 'I') {
+		// Handle Info/Members menu keys from welcome/comeback screen
+		if (currentState.Screen == navigation.ScreenWelcome || currentState.Screen == navigation.ScreenComeback) && (char == 'i' || char == 'I') {
 			currentState.Screen = navigation.ScreenInfo
 			infoScrollPos = 0
 			// Force reload of INFOFILE.ANS to ensure proper handling
 			infoLoaded = false
 			continue
 		}
-		if currentState.Screen == navigation.ScreenWelcome && (char == 'm' || char == 'M') {
+		if (currentState.Screen == navigation.ScreenWelcome || currentState.Screen == navigation.ScreenComeback) && (char == 'm' || char == 'M') {
 			currentState.Screen = navigation.ScreenMembers
 			membersScrollPos = 0
 			// Force reload of MEMBERS.ANS to ensure proper handling
@@ -728,8 +757,8 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 		// Handle navigation
 		var direction navigation.Direction
 
-		// Handle RETURN key on WELCOME screen to navigate to current day (same as arrow right)
-		if currentState.Screen == navigation.ScreenWelcome && (char == '\r' || char == '\n') {
+		// Handle RETURN key on WELCOME/COMEBACK screen to navigate to current day (same as arrow right)
+		if (currentState.Screen == navigation.ScreenWelcome || currentState.Screen == navigation.ScreenComeback) && (char == '\r' || char == '\n') {
 			direction = navigation.DirRight
 			logrus.Info("RETURN pressed on WELCOME - navigating to current day")
 		}

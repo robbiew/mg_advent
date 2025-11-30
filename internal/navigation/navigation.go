@@ -120,11 +120,11 @@ func (n *Navigator) Navigate(direction Direction, currentState State) (newState 
 func (n *Navigator) navigateFromWelcome(direction Direction, state State) (State, string, error) {
 	switch direction {
 	case DirRight:
-		// Move to day 1 for older years, or current day for current year
+		// Move to current day screen
 		state.Screen = ScreenDay
 
-		// For simplicity, always navigate to day 1 when pressing right from welcome
-		state.CurrentDay = 1
+		// CurrentDay is preserved from state (respects debug-date override)
+		// The state.CurrentDay was already set during initialization or via debug override
 		artPath := n.getDayArtPath(state.CurrentYear, state.CurrentDay)
 
 		return state, artPath, nil
@@ -340,9 +340,9 @@ func (n *Navigator) getWelcomeArtPath(year int) string {
 }
 
 // getComebackArtPath returns the path to the comeback art file
-func (n *Navigator) getComebackArtPath(_ int) string {
-	commonDir := path.Join(n.baseArtDir, "common")
-	return path.Join(commonDir, "COMEBACK.ANS")
+func (n *Navigator) getComebackArtPath(year int) string {
+	yearDir := path.Join(n.baseArtDir, strconv.Itoa(year))
+	return path.Join(yearDir, "COMEBACK.ANS")
 }
 
 // ValidateState validates that the current state is consistent
