@@ -20,6 +20,13 @@ import (
 	"github.com/robbiew/advent/internal/validation"
 )
 
+// Version information - can be set at build time with ldflags
+// Example: go build -ldflags "-X main.version=v1.0.0 -X main.buildDate=2024-12-01"
+var (
+	version   = "v1.0.0"
+	buildDate = "unknown"
+)
+
 var (
 	// Command line flags
 	localMode    = flag.Bool("local", false, "run in local UTF-8 mode")
@@ -27,6 +34,7 @@ var (
 	disableDate  = flag.Bool("debug-disable-date", false, "disable date validation")
 	dropfilePath = flag.String("path", "", "path to door32.sys file")
 	logonMode    = flag.Bool("logon", false, "logon mode: show current day's door, then COMEBACK.ANS and exit")
+	showVersion  = flag.Bool("version", false, "show version information")
 )
 
 func main() {
@@ -41,6 +49,14 @@ func main() {
 	}
 
 	flag.Parse()
+
+	// Handle version flag
+	if *showVersion {
+		fmt.Printf("MiSTiGRiS Advent Calendar BBS Door %s\n", version)
+		fmt.Printf("Build Date: %s\n", buildDate)
+		fmt.Println("Programmed by J0hnny A1pha")
+		os.Exit(0)
+	}
 
 	// Set log level - Default to ErrorLevel to hide info/debug messages from sysop console
 	logrus.SetLevel(logrus.ErrorLevel)
