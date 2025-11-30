@@ -55,13 +55,13 @@ func NewBBSConnectionFromSocket(socketHandle int, dropfilePath string) (*BBSConn
 }
 
 // NewBBSConnection creates a new BBS connection based on platform and dropfile
-func NewBBSConnection(dropfilePath, socketHost string) (*BBSConnection, error) {
+func NewBBSConnection(dropfilePath string) (*BBSConnection, error) {
 	conn := &BBSConnection{}
 
 	// Detect connection type based on platform
 	if runtime.GOOS == "windows" {
 		// Parse dropfile to determine connection type
-		door32Info, err := ParseDoor32(dropfilePath, socketHost)
+		door32Info, err := ParseDoor32(dropfilePath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse door32.sys: %w", err)
 		}
@@ -136,7 +136,7 @@ func NewBBSConnection(dropfilePath, socketHost string) (*BBSConnection, error) {
 
 // ParseDoor32 parses a door32.sys file and returns user information
 // Follows the official Door32 specification (11 lines)
-func ParseDoor32(dropfilePath, socketHost string) (*Door32Info, error) {
+func ParseDoor32(dropfilePath string) (*Door32Info, error) {
 	file, err := os.Open(dropfilePath)
 	if err != nil {
 		return nil, err
@@ -221,7 +221,7 @@ func ParseDoor32(dropfilePath, socketHost string) (*Door32Info, error) {
 
 	// Parse socket information if it's a telnet connection (Windows only)
 	if info.LineType == 2 && runtime.GOOS == "windows" {
-		socketInfo, err := parseWindowsDropfile(dropfilePath, socketHost)
+		socketInfo, err := parseWindowsDropfile(dropfilePath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse socket info: %w", err)
 		}
@@ -266,7 +266,7 @@ type Door32Info struct {
 }
 
 // parseWindowsDropfile parses door32.sys dropfile for socket information
-func parseWindowsDropfile(dropfilePath, socketHost string) (*SocketInfo, error) {
+func parseWindowsDropfile(dropfilePath string) (*SocketInfo, error) {
 	file, err := os.Open(dropfilePath)
 	if err != nil {
 		return nil, err
@@ -306,8 +306,8 @@ func parseWindowsDropfile(dropfilePath, socketHost string) (*SocketInfo, error) 
 		return nil, fmt.Errorf("invalid socket handle (line 2): %s", lines[1])
 	}
 
-	// Use configured socket host
-	info.Host = socketHost
+	// Use default socket host (localhost)
+	info.Host = "127.0.0.1"
 	info.Port = socketHandle
 
 	// Look for custom socket info at the end of the file (our batch file adds this)

@@ -23,13 +23,9 @@ import (
 var (
 	// Command line flags
 	localMode    = flag.Bool("local", false, "run in local UTF-8 mode")
-	socketHost   = flag.String("socket-host", "127.0.0.1", "BBS server IP address")
-	socketHandle = flag.Int("socket", 0, "socket handle from BBS (Mystic %0)")
 	debugDate    = flag.String("debug-date", "", "override date (YYYY-MM-DD)")
 	disableDate  = flag.Bool("debug-disable-date", false, "disable date validation")
-	disableArt   = flag.Bool("debug-disable-art", false, "disable art validation")
 	dropfilePath = flag.String("path", "", "path to door32.sys file")
-	debugMode    = flag.Bool("debug", false, "enable debug logging")
 	logonMode    = flag.Bool("logon", false, "logon mode: show current day's door, then COMEBACK.ANS and exit")
 )
 
@@ -46,30 +42,8 @@ func main() {
 
 	flag.Parse()
 
-	// CRITICAL FIX: If socket handle provided, create connection IMMEDIATELY
-	// and use it for ALL output (including logs) from the start
-	var bbsConn *bbs.BBSConnection
-	if *socketHandle > 0 {
-		// Create socket connection BEFORE anything else
-		var err error
-		bbsConn, err = bbs.NewBBSConnectionFromSocket(*socketHandle, *dropfilePath)
-		if err != nil {
-			// Fallback to stdout only if socket fails
-			fmt.Fprintf(os.Stdout, "ERROR: Socket connection failed: %v\r\n", err)
-			os.Exit(1)
-		}
-		// Immediately write to socket to prove connection works
-		bbsConn.Write([]byte("\033[2J\033[H\033[37;1mConnected!\033[0m\r\n"))
-		bbsConn.Flush()
-	}
-
-	// Set log level based on debug flag
-	if *debugMode {
-		logrus.SetLevel(logrus.DebugLevel)
-	} else {
-		// Default to ErrorLevel to hide info/debug messages from sysop console
-		logrus.SetLevel(logrus.ErrorLevel)
-	}
+	// Set log level - Default to ErrorLevel to hide info/debug messages from sysop console
+	logrus.SetLevel(logrus.ErrorLevel)
 	logrus.SetFormatter(&logrus.TextFormatter{
 		TimestampFormat: "15:04:05.000",
 		FullTimestamp:   true,
@@ -116,12 +90,12 @@ func main() {
 		},
 	}, embedded.ArtFS)
 
-	// If not already connected via socket, try door32.sys
-	if bbsConn == nil && *dropfilePath != "" {
-		// Traditional method: read socket from door32.sys
+	// Initialize BBS connection from door32.sys if provided
+	var bbsConn *bbs.BBSConnection
+	if *dropfilePath != "" {
 		logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Creating BBS connection from door32.sys")
 		var connErr error
-		bbsConn, connErr = bbs.NewBBSConnection(*dropfilePath, *socketHost)
+		bbsConn, connErr = bbs.NewBBSConnection(*dropfilePath)
 		logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: BBS connection created")
 		if connErr != nil {
 			logrus.WithError(connErr).Error("Failed to create BBS connection - continuing in fallback mode")
@@ -236,11 +210,9 @@ func main() {
 	}
 
 	// Validate art files
-	if !*disableArt {
-		if err := validator.ValidateArtFiles(initialState.CurrentYear); err != nil {
-			logrus.WithError(err).Error("Art file validation failed")
-			return
-		}
+	if err := validator.ValidateArtFiles(initialState.CurrentYear); err != nil {
+		logrus.WithError(err).Error("Art file validation failed")
+		return
 	}
 
 	// Apply date override if specified
@@ -304,7 +276,7 @@ func getUserInfo(localMode bool) display.User {
 	logrus.Info("Running in BBS mode")
 
 	if *dropfilePath != "" {
-		door32Info, err := bbs.ParseDoor32(*dropfilePath, *socketHost)
+		door32Info, err := bbs.ParseDoor32(*dropfilePath)
 		if err != nil {
 			logrus.WithError(err).Warn("Failed to parse door32.sys, using defaults")
 		} else {
