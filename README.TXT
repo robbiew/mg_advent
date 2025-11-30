@@ -1,11 +1,10 @@
 MiSTiGRiS ADVENT CALENDAR BBS DOOR
 Programmed by J0hnny A1pha
 https://github.com/robbiew/mg_advent
-==================================
+====================================
 
 COMMAND LINE SWITCHES
---------------------
-
+---------------------
 The Mistigris Advent Calendar BBS Door supports the following command line switches. 
 Only "-path" is required:
       
@@ -27,7 +26,6 @@ Only "-path" is required:
 
 EXAMPLES
 --------
-
 Run as a BBS door with door32.sys:
   advent -path /path/to/door32.sys
 
@@ -35,13 +33,15 @@ Run in logon mode (shows current day and exits):
   advent -logon -path /path/to/door32.sys
 
 
-IMPORTANT NOTE FOR WINDOWS USERS
----------------------------------_
+IMPORTANT NOTE FOR WINDOWS 7 USERS
+----------------------------------
 DO NOT RENAME THE EXECUTABLE FILE. The program must be run with the exact 
 filename provided in the package to ensure proper operation.
 
 
 IMPORTANT NOTE FOR LINUX USERS
----------------------------------_
-If possible, build your executable from source to avoid any version imcompatibility (like
-GLIB-C). https://github.com/robbiew/mg_advent
+------------------------------
+If possible, build your executable from the Go source to avoid any version 
+incompatibilities (like GLIB-C):
+
+https://github.com/robbiew/mg_advent
