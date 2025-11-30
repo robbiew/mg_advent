@@ -410,9 +410,14 @@ func (de *DisplayEngine) loadAndProcess(filePath string) ([]string, error) {
 		lines = de.processUTF8(content) // Default fallback
 	}
 
-	// Handle 80-column issue if enabled
+	// Handle 80-column issue if enabled (for line-based ANSI)
 	if de.config.Columns.Handle80ColumnIssue {
 		lines = de.handle80ColumnIssue(lines)
+	}
+
+	// Handle 80-column issue for cursor-positioned ANSI (no line breaks)
+	if de.config.Columns.Handle80ColumnIssue && de.config.Width == 80 && len(lines) == 1 {
+		lines[0] = de.fix80ColumnCursorPositioning(lines[0])
 	}
 
 	// Cache the result
@@ -465,6 +470,8 @@ func (de *DisplayEngine) processCP437Raw(content []byte) []string {
 }
 
 // handle80ColumnIssue handles the 80-column line break issue
+// When a line has 80 or more visible characters on an 80-column terminal,
+// the cursor auto-wraps to the next line, causing unwanted screen scrolling
 func (de *DisplayEngine) handle80ColumnIssue(lines []string) []string {
 	if de.config.Width != 80 {
 		return lines
@@ -472,14 +479,160 @@ func (de *DisplayEngine) handle80ColumnIssue(lines []string) []string {
 
 	result := make([]string, len(lines))
 	for i, line := range lines {
-		if len(line) == 80 {
-			// Truncate to 79 to prevent unwanted line wrapping
-			result[i] = line[:79]
+		visibleCount := countVisibleChars(line)
+		if visibleCount >= 80 {
+			// Remove the last visible character to prevent auto-wrap
+			result[i] = removeLastVisibleChar(line)
 		} else {
 			result[i] = line
 		}
 	}
 	return result
+}
+
+// countVisibleChars counts visible characters in a string, excluding ANSI escape sequences
+func countVisibleChars(s string) int {
+	count := 0
+	i := 0
+
+	for i < len(s) {
+		if s[i] == '\x1b' {
+			// Start of ANSI escape sequence - skip the entire sequence
+			i++
+			if i < len(s) && s[i] == '[' {
+				// CSI sequence: ESC [ ... letter
+				i++
+				// Skip until we find the terminating letter (64-126 range for ANSI)
+				for i < len(s) {
+					ch := s[i]
+					i++
+					// ANSI CSI sequences end with a byte in the range 0x40-0x7E (64-126)
+					if ch >= 0x40 && ch <= 0x7E {
+						break
+					}
+				}
+			} else if i < len(s) {
+				// Other escape sequence (like ESC 7, ESC 8, etc.) - skip one more char
+				i++
+			}
+			continue
+		}
+
+		// Count visible character
+		count++
+		i++
+	}
+
+	return count
+}
+
+// removeLastVisibleChar removes the last visible character from a string while preserving ANSI codes
+func removeLastVisibleChar(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+
+	// Find all visible character positions
+	var visiblePositions []int
+	i := 0
+
+	for i < len(s) {
+		if s[i] == '\x1b' {
+			// Skip ANSI escape sequence
+			i++
+			if i < len(s) && s[i] == '[' {
+				// CSI sequence: ESC [ ... letter
+				i++
+				for i < len(s) {
+					ch := s[i]
+					i++
+					if ch >= 0x40 && ch <= 0x7E {
+						break
+					}
+				}
+			} else if i < len(s) {
+				// Other escape sequence - skip one more char
+				i++
+			}
+			continue
+		}
+
+		// This is a visible character
+		visiblePositions = append(visiblePositions, i)
+		i++
+	}
+
+	// If no visible characters, return original
+	if len(visiblePositions) == 0 {
+		return s
+	}
+
+	// Remove the last visible character
+	lastVisiblePos := visiblePositions[len(visiblePositions)-1]
+	return s[:lastVisiblePos] + s[lastVisiblePos+1:]
+}
+
+// fix80ColumnCursorPositioning fixes ANSI art that uses cursor positioning (ESC[row;colH)
+// by ensuring nothing is ever positioned at column 80 of the last row
+func (de *DisplayEngine) fix80ColumnCursorPositioning(content string) string {
+	if de.config.Width != 80 {
+		return content
+	}
+
+	result := strings.Builder{}
+	result.Grow(len(content))
+
+	i := 0
+	for i < len(content) {
+		if content[i] == '\x1b' && i+1 < len(content) && content[i+1] == '[' {
+			// Found ESC[, look for cursor positioning command (ends with H or f)
+			seqStart := i
+			i += 2
+
+			// Collect the parameters
+			paramStart := i
+			for i < len(content) && (content[i] >= '0' && content[i] <= '9' || content[i] == ';') {
+				i++
+			}
+
+			if i < len(content) && (content[i] == 'H' || content[i] == 'f') {
+				// This is a cursor positioning command
+				params := content[paramStart:i]
+				terminator := content[i]
+				i++
+
+				// Parse row;col
+				parts := strings.Split(params, ";")
+				if len(parts) == 2 {
+					row := 0
+					col := 0
+					fmt.Sscanf(parts[0], "%d", &row)
+					fmt.Sscanf(parts[1], "%d", &col)
+
+					// If positioning at column 80 on the last row, change to column 79
+					if row == de.config.Height && col == 80 {
+						result.WriteString(fmt.Sprintf("\x1b[%d;79%c", row, terminator))
+						continue
+					}
+				}
+
+				// Write original sequence
+				result.WriteString(content[seqStart:i])
+			} else {
+				// Not a cursor positioning command, write what we've read
+				result.WriteString(content[seqStart:i])
+				if i < len(content) {
+					result.WriteByte(content[i])
+					i++
+				}
+			}
+		} else {
+			result.WriteByte(content[i])
+			i++
+		}
+	}
+
+	return result.String()
 }
 
 // renderNormal renders content without scrolling
@@ -500,6 +653,20 @@ func (de *DisplayEngine) renderNormal(lines []string) error {
 		line := lines[i]
 		// Last line is the last one we're displaying in the viewport
 		isLastLine := i == linesToDisplay-1
+
+		// CRITICAL 80-COLUMN FIX: When displaying exactly a full screen (25 lines on a 25-line terminal)
+		// AND this is the last line (line 25), we MUST prevent any content from reaching column 80
+		// because the terminal will auto-wrap after printing the 80th character, causing unwanted scroll
+		if isLastLine && linesToDisplay == de.config.Height && de.config.Width == 80 {
+			// Check if this line has 80+ visible characters
+			visibleCount := countVisibleChars(line)
+			// Keep removing characters until we're under 80 to handle lines with 80+ chars
+			for visibleCount >= 80 {
+				line = removeLastVisibleChar(line)
+				visibleCount = countVisibleChars(line)
+			}
+		}
+
 		de.printLine(line, isLastLine)
 	}
 
@@ -647,6 +814,17 @@ const (
 
 // printLine handles newline behavior per mode
 func (de *DisplayEngine) printLine(line string, isLastLine bool) {
+	// CRITICAL 80x25 FIX: For single-line ANSI art that fills exactly 25 rows (2000 visible chars)
+	// we must prevent the 2000th character from being printed to avoid auto-wrap scroll
+	if isLastLine && de.config.Width == 80 && de.config.Height == 25 {
+		visibleCount := countVisibleChars(line)
+		// If this single line has 2000+ chars, keep removing until under 2000
+		for visibleCount >= 2000 {
+			line = removeLastVisibleChar(line)
+			visibleCount = countVisibleChars(line)
+		}
+	}
+
 	if de.config.Mode == ModeCP437Raw {
 		de.output.Write([]byte(line))
 		// Only add line break if not the last line to avoid trailing breaks

@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"runtime"
 	"time"
@@ -412,34 +411,13 @@ func displayNotYet(displayEngine *display.DisplayEngine, artManager *art.Manager
 		displayEngine.Display(notYetPath, user)
 	}
 
-	// Add "[Press a Key]" prompt at bottom of screen
-	var writer io.Writer
-	if bbsConn != nil {
-		writer = bbsConn
-	} else {
-		writer = os.Stdout
-	}
-
-	// Position cursor at bottom of screen and display centered prompt
-	message := "[Press a Key]"
-	centerCol := (user.W - len(message)) / 2
-	if centerCol < 1 {
-		centerCol = 1
-	}
-	fmt.Fprintf(writer, "\033[%d;%dH\033[2K\033[37;1m%s\033[0m", user.H, centerCol, message)
-
-	// Flush output if it's a buffered writer
-	if flusher, ok := writer.(interface{ Flush() error }); ok {
-		flusher.Flush()
-	}
-
-	// Wait for key press or 5 seconds, whichever comes first
+	// Wait for key press or 10 seconds, whichever comes first (no visible prompt)
 	if inputHandler != nil {
 		// Open input handler temporarily if not already open
 		wasOpen := true
 		if err := inputHandler.Open(); err != nil {
-			// If we can't open input handler, fall back to 5 second wait
-			time.Sleep(5 * time.Second)
+			// If we can't open input handler, fall back to 10 second wait
+			time.Sleep(10 * time.Second)
 			return
 		}
 		defer func() {
@@ -461,12 +439,12 @@ func displayNotYet(displayEngine *display.DisplayEngine, artManager *art.Manager
 		select {
 		case <-keyPressed:
 			logrus.Info("NOTYET: key pressed, exiting")
-		case <-time.After(5 * time.Second):
+		case <-time.After(10 * time.Second):
 			logrus.Info("NOTYET: timeout reached, exiting")
 		}
 	} else {
-		// Fallback: 5 second pause
-		time.Sleep(5 * time.Second)
+		// Fallback: 10 second pause
+		time.Sleep(10 * time.Second)
 	}
 }
 
@@ -810,13 +788,13 @@ func runLogonMode(displayEngine *display.DisplayEngine, artManager *art.Manager,
 	// Check if it's December (unless date validation is disabled)
 	if !*disableDate {
 		if err := validator.ValidateDate(); err != nil {
-			// Not December - show NOTYET.ANS with 5-second timeout
+			// Not December - show NOTYET.ANS with 10-second timeout
 			notYetPath := artManager.GetPath(state.CurrentYear, 0, "notyet")
 			if notYetPath != "" {
 				displayEngine.Display(notYetPath, user)
 			}
 
-			// Wait for key press or 5 seconds, whichever comes first
+			// Wait for key press or 10 seconds, whichever comes first (no visible prompt)
 			if inputHandler != nil {
 				// Open input handler temporarily if not already open
 				if err := inputHandler.Open(); err == nil {
@@ -835,7 +813,7 @@ func runLogonMode(displayEngine *display.DisplayEngine, artManager *art.Manager,
 					select {
 					case <-keyPressed:
 						logrus.Info("NOTYET: key pressed, exiting")
-					case <-time.After(5 * time.Second):
+					case <-time.After(10 * time.Second):
 						logrus.Info("NOTYET: timeout reached, exiting")
 					}
 				}
@@ -897,8 +875,8 @@ func runLogonMode(displayEngine *display.DisplayEngine, artManager *art.Manager,
 		}
 	}
 
-	// Wait for key press or 5 seconds, whichever comes first
-	logrus.Info("Logon mode: waiting for key press or 5 seconds on COMEBACK.ANS")
+	// Wait for key press or 10 seconds, whichever comes first
+	logrus.Info("Logon mode: waiting for key press or 10 seconds on COMEBACK.ANS")
 
 	// Create a channel for key press
 	keyPressed := make(chan bool, 1)
@@ -913,7 +891,7 @@ func runLogonMode(displayEngine *display.DisplayEngine, artManager *art.Manager,
 	select {
 	case <-keyPressed:
 		logrus.Info("Logon mode: key pressed, exiting")
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		logrus.Info("Logon mode: timeout reached, exiting")
 	}
 
