@@ -1,10 +1,12 @@
-                    MISTIGRIS ADVENT CALENDAR
-                    ========================
+MiSTiGRiS ADVENT CALENDAR BBS DOOR
+Programmed by J0hnny A1pha
+https://github.com/robbiew/mg_advent
+==================================
 
 COMMAND LINE SWITCHES
 --------------------
 
-The Mistigris Advent Calendar supports the following command line switches. 
+The Mistigris Advent Calendar BBS Door supports the following command line switches. 
 Only "-path" is required:
       
   -path <filepath>
@@ -18,7 +20,10 @@ Only "-path" is required:
       
   -debug-disable-date
       Disable date validation (allows running outside of December)
-      
+
+  -version
+      Show version and author information
+
 
 EXAMPLES
 --------
@@ -31,6 +36,12 @@ Run in logon mode (shows current day and exits):
 
 
 IMPORTANT NOTE FOR WINDOWS USERS
--------------------------------_
+---------------------------------_
 DO NOT RENAME THE EXECUTABLE FILE. The program must be run with the exact 
 filename provided in the package to ensure proper operation.
+
+
+IMPORTANT NOTE FOR LINUX USERS
+---------------------------------_
+If possible, build your executable from source to avoid any version imcompatibility (like
+GLIB-C). https://github.com/robbiew/mg_advent
