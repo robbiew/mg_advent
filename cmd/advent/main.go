@@ -204,7 +204,7 @@ func main() {
 		}
 	} else {
 		if err := validator.ValidateDate(); err != nil {
-			displayNotYet(displayEngine, artManager, initialState.CurrentYear, user, inputHandler, bbsConn)
+			displayNotYet(displayEngine, artManager, initialState.CurrentYear, user, inputHandler)
 			return
 		}
 	}
@@ -225,7 +225,7 @@ func main() {
 
 	// Handle logon mode - skip welcome screen and go directly to current day's door
 	if *logonMode {
-		runLogonMode(displayEngine, artManager, navigator, inputHandler, sessionManager, initialState, user, validator, bbsConn)
+		runLogonMode(displayEngine, artManager, inputHandler, sessionManager, initialState, user, validator)
 		return
 	}
 
@@ -404,7 +404,7 @@ func applyDateOverride(state *navigation.State, dateStr string) error {
 	return nil
 }
 
-func displayNotYet(displayEngine *display.DisplayEngine, artManager *art.Manager, year int, user display.User, inputHandler *input.InputHandler, bbsConn *bbs.BBSConnection) {
+func displayNotYet(displayEngine *display.DisplayEngine, artManager *art.Manager, year int, user display.User, inputHandler *input.InputHandler) {
 	// Display "not yet" screen
 	notYetPath := artManager.GetPath(year, 0, "notyet")
 	if notYetPath != "" {
@@ -781,10 +781,7 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 	cleanup(displayEngine, inputHandler, sessionManager)
 }
 
-func runLogonMode(displayEngine *display.DisplayEngine, artManager *art.Manager,
-	navigator *navigation.Navigator, inputHandler *input.InputHandler,
-	sessionManager *session.Manager, state navigation.State, user display.User,
-	validator *validation.Validator, bbsConn *bbs.BBSConnection) {
+func runLogonMode(displayEngine *display.DisplayEngine, artManager *art.Manager, inputHandler *input.InputHandler, sessionManager *session.Manager, state navigation.State, user display.User, validator *validation.Validator) {
 
 	// Check if it's December (unless date validation is disabled)
 	if !*disableDate {
