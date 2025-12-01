@@ -885,25 +885,7 @@ func runLogonMode(displayEngine *display.DisplayEngine, artManager *art.Manager,
 		logrus.WithError(err).Error("Failed to read key in logon mode")
 	}
 
-	// Clear screen
-	displayEngine.ClearScreen()
-
-	// Display COMEBACK.ANS
-	comebackPath := artManager.GetPath(state.CurrentYear, 0, "comeback")
-	if comebackPath != "" {
-		if err := displayEngine.Display(comebackPath, user); err != nil {
-			logrus.WithError(err).Error("Failed to display comeback art in logon mode")
-		}
-	}
-
-	// Wait for any key press
-	logrus.Info("Logon mode: waiting for key press on COMEBACK.ANS")
-	_, _, err = inputHandler.ReadKey()
-	if err != nil {
-		logrus.WithError(err).Error("Failed to read key in logon mode on COMEBACK.ANS")
-	}
-
-	// Clean up
+	// Clean up and exit immediately after key press on day art
 	displayEngine.DisableBlinkMode() // Re-enable ICE mode
 	displayEngine.ShowCursor()
 	displayEngine.ClearScreen()
