@@ -214,6 +214,13 @@ func main() {
 	if *disableDate || *debugDate != "" {
 		if *disableDate {
 			logrus.Info("Date validation disabled by debug flag")
+			navigator.SetDisableDateCheck(true)
+			// Recalculate MaxDay with date checking disabled
+			initialState, err = navigator.GetInitialState()
+			if err != nil {
+				logrus.WithError(err).Error("Failed to recalculate initial state after disabling date check")
+				return
+			}
 		}
 		if *debugDate != "" {
 			logrus.Info("Date validation skipped due to debug-date override")
@@ -889,24 +896,11 @@ func runLogonMode(displayEngine *display.DisplayEngine, artManager *art.Manager,
 		}
 	}
 
-	// Wait for key press or 10 seconds, whichever comes first
-	logrus.Info("Logon mode: waiting for key press or 10 seconds on COMEBACK.ANS")
-
-	// Create a channel for key press
-	keyPressed := make(chan bool, 1)
-
-	// Start goroutine to wait for key press
-	go func() {
-		inputHandler.ReadKey()
-		keyPressed <- true
-	}()
-
-	// Wait for either key press or timeout
-	select {
-	case <-keyPressed:
-		logrus.Info("Logon mode: key pressed, exiting")
-	case <-time.After(10 * time.Second):
-		logrus.Info("Logon mode: timeout reached, exiting")
+	// Wait for any key press
+	logrus.Info("Logon mode: waiting for key press on COMEBACK.ANS")
+	_, _, err = inputHandler.ReadKey()
+	if err != nil {
+		logrus.WithError(err).Error("Failed to read key in logon mode on COMEBACK.ANS")
 	}
 
 	// Clean up

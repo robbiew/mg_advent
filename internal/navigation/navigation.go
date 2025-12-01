@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"path" // Use path instead of filepath for embedded FS (always forward slashes)
 	"strconv"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -48,16 +49,23 @@ type State struct {
 
 // Navigator handles navigation logic
 type Navigator struct {
-	baseArtDir string
-	fs         fs.FS
+	baseArtDir      string
+	fs              fs.FS
+	disableDateCheck bool
 }
 
 // NewNavigator creates a new navigator
 func NewNavigator(embeddedFS fs.FS, baseArtDir string) *Navigator {
 	return &Navigator{
-		baseArtDir: baseArtDir,
-		fs:         embeddedFS,
+		baseArtDir:      baseArtDir,
+		fs:              embeddedFS,
+		disableDateCheck: false,
 	}
+}
+
+// SetDisableDateCheck sets whether date checking should be disabled
+func (n *Navigator) SetDisableDateCheck(disable bool) {
+	n.disableDateCheck = disable
 }
 
 // GetAvailableYears returns list of available years with art
@@ -289,10 +297,24 @@ func (n *Navigator) GetInitialState() (State, error) {
 
 // calculateMaxDay calculates the maximum available day for a year
 func (n *Navigator) calculateMaxDay() int {
-	// For testing/demo purposes or when year directories exist without full content,
-	// we allow navigation through all 25 days regardless of current date
-	// Missing art will show MISSING.ANS fallback
-	return 25
+	// If date checking is disabled (debug mode), allow all 25 days
+	if n.disableDateCheck {
+		return 25
+	}
+
+	now := time.Now()
+
+	// If it's December, limit to the current day (max 25)
+	if now.Month() == time.December {
+		day := now.Day()
+		if day > 25 {
+			return 25
+		}
+		return day
+	}
+
+	// If not December, no days are accessible (should show NOTYET.ANS instead)
+	return 0
 }
 
 // getDayArtPath returns the path to a day's art file
