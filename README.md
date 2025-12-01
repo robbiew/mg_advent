@@ -164,4 +164,4 @@ This project is released under the terms specified in the LICENSE file.
 
 ### Migration Note (2025)
 
-The `dos/` directory was migrated from the former `mg_advent_DOS` repo. All legacy DOS code and art is now maintained here for unified development and preservation.
+The `dos/` directory is a work in progress and is not fully functional. The focus is on maintaining the modern Go version. Contributions to the DOS version are welcome but may require significant effort to bring it up to date.
