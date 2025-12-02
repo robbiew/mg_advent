@@ -787,15 +787,19 @@ func (de *DisplayEngine) ShowCursor() {
 // EnableBlinkMode enables ANSI blink mode by disabling ICE mode
 // This allows blinking ANSI art to display properly
 func (de *DisplayEngine) EnableBlinkMode() {
-	de.output.Write([]byte(DisableIceMode))
-	de.flushOutput()
+	if !de.config.NoIce {
+		de.output.Write([]byte(DisableIceMode))
+		de.flushOutput()
+	}
 }
 
 // DisableBlinkMode restores ICE mode (disables blink, enables high backgrounds)
 // This should be called on program exit to restore terminal defaults
 func (de *DisplayEngine) DisableBlinkMode() {
-	de.output.Write([]byte(EnableIceMode))
-	de.flushOutput()
+	if !de.config.NoIce {
+		de.output.Write([]byte(EnableIceMode))
+		de.flushOutput()
+	}
 }
 
 // ANSI escape sequences (extracted from original ansiart.go)

@@ -31,6 +31,7 @@ type DisplayConfig struct {
 	Scrolling   ScrollingConfig
 	Columns     ColumnConfig
 	Performance PerformanceConfig
+	NoIce       bool // Disable ICE mode control codes
 }
 
 type ScrollingConfig struct {

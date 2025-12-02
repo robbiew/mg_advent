@@ -35,6 +35,8 @@ var (
 	dropfilePath = flag.String("path", "", "path to door32.sys file")
 	logonMode    = flag.Bool("logon", false, "logon mode: show current day's door, then COMEBACK.ANS and exit")
 	showVersion  = flag.Bool("version", false, "show version information")
+	noIce        = flag.Bool("noice", false, "disable ICE mode control codes (for terminals that don't support them)")
+	noDetect     = flag.Bool("nodetect", false, "disable terminal size detection (use default 80x25)")
 )
 
 func main() {
@@ -104,6 +106,7 @@ func main() {
 			CacheSizeMB:  50,
 			PreloadLines: 100,
 		},
+		NoIce: *noIce,
 	}, embedded.ArtFS)
 
 	// Initialize BBS connection from door32.sys if provided
@@ -150,7 +153,7 @@ func main() {
 
 	// Detect terminal size (prefer BBS connection query over term.GetSize)
 	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Detecting terminal size")
-	width, height := detectTerminalSize(bbsConn)
+	width, height := detectTerminalSize(bbsConn, *noDetect)
 	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Terminal size detected")
 
 	// Update user struct with detected terminal size
@@ -336,7 +339,13 @@ func getUserInfo(localMode bool) display.User {
 	}
 }
 
-func detectTerminalSize(bbsConn *bbs.BBSConnection) (width, height int) {
+func detectTerminalSize(bbsConn *bbs.BBSConnection, noDetect bool) (width, height int) {
+	// If detection is disabled, return default immediately
+	if noDetect {
+		logrus.Info("Terminal size detection disabled, using default 80x25")
+		return 80, 25
+	}
+
 	// Wrap in recovery to handle panics in terminal detection
 	defer func() {
 		if r := recover(); r != nil {
