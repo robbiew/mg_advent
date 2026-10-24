@@ -3,7 +3,7 @@ module github.com/robbiew/advent
 go 1.21
 
 require (
-	github.com/robbiew/godoors v0.0.0-20261024224432-45571f4c8e72
+	github.com/robbiew/godoors v0.0.0-20261024233019-9364a49ddd7c
 	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/sys v0.26.0
 	golang.org/x/text v0.14.0
