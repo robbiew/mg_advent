@@ -1,3 +1,7 @@
+> Historical documentation: this applies to releases before the GoDoors migration.
+> Current builds require Go 1.21 and Windows 10 / Server 2016 or later; the Go 1.20
+> Windows 7 build path is retired.
+
 # Windows 7 Executable - No Rename Needed
 
 ## The Solution

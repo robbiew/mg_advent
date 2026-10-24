@@ -4,14 +4,14 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"runtime"
+	"path/filepath"
+	"strings"
 	"time"
 
+	gd "github.com/robbiew/godoors"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/term"
 
 	"github.com/robbiew/advent/internal/art"
-	"github.com/robbiew/advent/internal/bbs"
 	"github.com/robbiew/advent/internal/display"
 	"github.com/robbiew/advent/internal/embedded"
 	"github.com/robbiew/advent/internal/input"
@@ -41,14 +41,6 @@ var (
 
 func main() {
 	startTime := time.Now()
-
-	// CRITICAL Windows 7 FIX: Write to stderr FIRST to force console initialization
-	// Windows 7 console buffers stdout for 20 seconds unless console is "active"
-	// Stderr write forces console activation
-	if runtime.GOOS == "windows" {
-		fmt.Fprintf(os.Stderr, "") // Write to stderr forces console init
-		os.Stderr.Sync()
-	}
 
 	flag.Parse()
 
@@ -109,29 +101,25 @@ func main() {
 		NoIce: *noIce,
 	}, embedded.ArtFS)
 
-	// Initialize BBS connection from door32.sys if provided
-	var bbsConn *bbs.BBSConnection
+	// Select the transport before any terminal probe or input read. Keep -path
+	// as a file path at the CLI; GoDoors expects its containing directory.
+	var doorInfo *gd.DropFile
 	if *dropfilePath != "" {
-		logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Creating BBS connection from door32.sys")
-		var connErr error
-		bbsConn, connErr = bbs.NewBBSConnection(*dropfilePath)
-		logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: BBS connection created")
-		if connErr != nil {
-			logrus.WithError(connErr).Error("Failed to create BBS connection - continuing in fallback mode")
+		info, err := openDoor(*dropfilePath)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to open BBS connection")
 			return
 		}
-		logrus.Info("BBS connection established - all I/O will go through inherited socket")
+		doorInfo = &info
 	}
-
+	defer gd.CloseSession()
 	inputHandler := input.NewInputHandler()
-	if bbsConn != nil {
-		inputHandler.SetBBSConnection(bbsConn)
+	if err := inputHandler.Open(); err != nil {
+		logrus.WithError(err).Error("Failed to open input handler")
+		return
 	}
+	defer inputHandler.Close()
 
-	// Store BBS connection for later use by display components
-	if bbsConn != nil {
-		logrus.Info("BBS connection available - display output will be handled by modified display engine")
-	} // Initialize session manager
 	idleTimeout := 5 * time.Minute  // Hard-coded 5 minute idle timeout
 	maxTimeout := 120 * time.Minute // Hard-coded 2 hour max timeout
 
@@ -148,12 +136,12 @@ func main() {
 
 	// Get user information
 	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Getting user info")
-	user := getUserInfo(*localMode)
+	user := getUserInfo(*localMode, doorInfo)
 	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Got user info")
 
 	// Detect terminal size (prefer BBS connection query over term.GetSize)
 	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Detecting terminal size")
-	width, height := detectTerminalSize(bbsConn, *noDetect)
+	width, height := detectTerminalSize(doorInfo != nil, *noDetect)
 	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Terminal size detected")
 
 	// Update user struct with detected terminal size
@@ -171,6 +159,7 @@ func main() {
 		Mode:   displayMode,
 		Width:  width,
 		Height: height,
+		NoIce:  *noIce,
 		Theme:  "classic",
 		Scrolling: display.ScrollingConfig{
 			Enabled:           true,
@@ -189,8 +178,8 @@ func main() {
 	}, embedded.ArtFS)
 
 	// Configure BBS output (different behavior on Windows vs Linux)
-	if bbsConn != nil {
-		displayEngine.SetBBSConnection(bbsConn)
+	if doorInfo != nil {
+		displayEngine.SetBBSConnection(gd.Output())
 		logrus.Info("Display engine configured for BBS output")
 	}
 
@@ -259,15 +248,6 @@ func main() {
 	sessionManager.Start()
 	defer sessionManager.Stop()
 
-	// Open input handler
-	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: About to open input handler")
-	if err := inputHandler.Open(); err != nil {
-		logrus.WithError(err).Error("Failed to open input handler")
-		return
-	}
-	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Input handler opened")
-	defer inputHandler.Close()
-
 	// Hide cursor, enable blink mode, and clear screen for both BBS and local modes
 	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Hiding cursor, enabling blink mode, and clearing screen")
 	displayEngine.HideCursor()
@@ -283,7 +263,7 @@ func main() {
 	runMainLoop(displayEngine, artManager, navigator, inputHandler, sessionManager, initialState, user)
 }
 
-func getUserInfo(localMode bool) display.User {
+func getUserInfo(localMode bool, info *gd.DropFile) display.User {
 	if localMode {
 		logrus.Info("Running in local mode")
 		return display.User{
@@ -301,28 +281,10 @@ func getUserInfo(localMode bool) display.User {
 	// BBS mode - parse door32.sys if available
 	logrus.Info("Running in BBS mode")
 
-	if *dropfilePath != "" {
-		door32Info, err := bbs.ParseDoor32(*dropfilePath)
-		if err != nil {
-			logrus.WithError(err).Warn("Failed to parse door32.sys, using defaults")
-		} else {
-			logrus.WithFields(logrus.Fields{
-				"alias":     door32Info.Alias,
-				"timeLeft":  door32Info.TimeLeft,
-				"emulation": door32Info.Emulation,
-				"node":      door32Info.NodeNumber,
-			}).Info("Parsed user info from door32.sys")
-
-			return display.User{
-				Alias:     door32Info.Alias,
-				TimeLeft:  time.Duration(door32Info.TimeLeft) * time.Minute,
-				Emulation: door32Info.Emulation,
-				NodeNum:   door32Info.NodeNumber,
-				H:         25,
-				W:         80,
-				ModalH:    25,
-				ModalW:    80,
-			}
+	if info != nil {
+		return display.User{
+			Alias: info.Alias, TimeLeft: time.Duration(info.TimeLeft) * time.Minute,
+			Emulation: info.Emulation, NodeNum: info.Node, H: 25, W: 80, ModalH: 25, ModalW: 80,
 		}
 	}
 
@@ -339,71 +301,33 @@ func getUserInfo(localMode bool) display.User {
 	}
 }
 
-func detectTerminalSize(bbsConn *bbs.BBSConnection, noDetect bool) (width, height int) {
-	// If detection is disabled, return default immediately
+func openDoor(path string) (gd.DropFile, error) {
+	directory := path
+	info, err := os.Stat(path)
+	if err != nil {
+		return gd.DropFile{}, err
+	}
+	if !info.IsDir() {
+		if !strings.EqualFold(filepath.Base(path), "door32.sys") {
+			return gd.DropFile{}, fmt.Errorf("drop file must be named door32.sys")
+		}
+		directory = filepath.Dir(path)
+	}
+	return gd.OpenSession(directory)
+}
+
+func detectTerminalSize(bbsMode, noDetect bool) (width, height int) {
 	if noDetect {
-		logrus.Info("Terminal size detection disabled, using default 80x25")
 		return 80, 25
 	}
-
-	// Wrap in recovery to handle panics in terminal detection
-	defer func() {
-		if r := recover(); r != nil {
-			logrus.WithField("panic", r).Error("Terminal size detection panicked - using fallback")
-			width, height = 80, 25 // Standard fallback
-		}
-	}()
-
-	logrus.Debug("Starting terminal size detection")
-
-	// Try to detect actual terminal size for BBS connections
-	if bbsConn != nil {
-		logrus.Debug("BBS connection available, attempting terminal size detection")
-		w, h, err := bbsConn.DetectTerminalSize()
-		logrus.WithFields(logrus.Fields{
-			"width":  w,
-			"height": h,
-			"error":  err,
-		}).Debug("Terminal detection result")
-
-		if err == nil && w > 0 && h > 0 {
-			logrus.WithFields(logrus.Fields{
-				"width":  w,
-				"height": h,
-				"method": "BBS terminal size detection",
-			}).Info("Detected actual terminal size")
-			return w, h
-		} else {
-			logrus.WithFields(logrus.Fields{
-				"error":  err,
-				"width":  w,
-				"height": h,
-			}).Warn("BBS terminal size detection failed, using standard 80x25")
-			return 80, 25 // Fallback to standard BBS dimensions
-		}
+	if bbsMode {
+		fmt.Fprint(gd.Output(), "\033[2J\033[H\033[12;25HDetecting Your Terminal Size...")
 	}
-
-	// Fallback: Try to get terminal size from stdin (works for local mode)
-	logrus.Debug("Attempting fallback terminal size detection using term.GetSize")
-	width, height, err := term.GetSize(int(os.Stdin.Fd()))
-	logrus.WithFields(logrus.Fields{
-		"width":  width,
-		"height": height,
-		"error":  err,
-	}).Debug("term.GetSize result")
-
-	if err == nil && width > 0 && height > 0 {
-		logrus.WithFields(logrus.Fields{
-			"width":  width,
-			"height": height,
-			"method": "term.GetSize (local)",
-		}).Info("Detected terminal size")
-		return width, height
+	height, width = gd.GetTermSize()
+	if bbsMode {
+		gd.ClearScreen()
 	}
-
-	// Final fallback to default 80x25
-	logrus.WithError(err).Info("Could not detect terminal size, using default 80x25")
-	return 80, 25
+	return width, height
 }
 
 func applyDateOverride(state *navigation.State, dateStr string) error {
@@ -443,41 +367,20 @@ func displayNotYet(displayEngine *display.DisplayEngine, artManager *art.Manager
 		displayEngine.Display(notYetPath, user)
 	}
 
-	// Wait for key press or 10 seconds, whichever comes first (no visible prompt)
-	if inputHandler != nil {
-		// Open input handler temporarily if not already open
-		wasOpen := true
-		if err := inputHandler.Open(); err != nil {
-			// If we can't open input handler, fall back to 10 second wait
-			time.Sleep(10 * time.Second)
-			return
-		}
-		defer func() {
-			if !wasOpen {
-				inputHandler.Close()
-			}
-		}()
+	waitForKey(inputHandler, 10*time.Second)
+}
 
-		// Create a channel for key press
-		keyPressed := make(chan bool, 1)
-
-		// Start goroutine to wait for key press
-		go func() {
-			inputHandler.ReadKey()
-			keyPressed <- true
-		}()
-
-		// Wait for either key press or timeout
-		select {
-		case <-keyPressed:
-			logrus.Info("NOTYET: key pressed, exiting")
-		case <-time.After(10 * time.Second):
-			logrus.Info("NOTYET: timeout reached, exiting")
-		}
-	} else {
-		// Fallback: 10 second pause
-		time.Sleep(10 * time.Second)
+func waitForKey(handler *input.InputHandler, timeout time.Duration) {
+	if handler == nil {
+		time.Sleep(timeout)
+		return
 	}
+	if err := handler.Open(); err != nil {
+		time.Sleep(timeout)
+		return
+	}
+	defer handler.Close()
+	_, _, _ = handler.ReadKeyTimeout(timeout)
 }
 
 func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
@@ -569,17 +472,13 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 		}
 
 		// Get user input
-		// CRITICAL: Give Mystic BBS time to transmit buffered output to user's terminal before blocking on input
-		// Windows 7 + Mystic BBS needs significant time to flush output buffers
-		logrus.WithField("elapsed", time.Since(loopStart)).Info("MAINLOOP: Waiting 500ms before reading input (BBS output stabilization)")
-		time.Sleep(500 * time.Millisecond)
 
 		logrus.WithField("elapsed", time.Since(loopStart)).Info("MAINLOOP: Now reading user input")
 		char, key, err := inputHandler.ReadKey()
 		logrus.WithField("elapsed", time.Since(loopStart)).Info("MAINLOOP: Got user input")
 		if err != nil {
-			logrus.WithError(err).Error("Failed to read input")
-			continue
+			logrus.WithError(err).Info("Input closed; ending door session")
+			break
 		}
 
 		// Handle scrolling for Info/Members screens
@@ -650,22 +549,7 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 				if exitPath != "" {
 					displayEngine.Display(exitPath, user)
 
-					// Wait for key press or 10 seconds, whichever comes first (no visible prompt)
-					keyPressed := make(chan bool, 1)
-
-					// Start goroutine to wait for key press
-					go func() {
-						inputHandler.ReadKey()
-						keyPressed <- true
-					}()
-
-					// Wait for either key press or timeout
-					select {
-					case <-keyPressed:
-						logrus.Info("GOODBYE: key pressed, exiting")
-					case <-time.After(10 * time.Second):
-						logrus.Info("GOODBYE: timeout reached, exiting")
-					}
+					waitForKey(inputHandler, 10*time.Second)
 				}
 				break
 			} else if currentState.Screen == navigation.ScreenInfo || currentState.Screen == navigation.ScreenMembers {
@@ -762,7 +646,7 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 		var direction navigation.Direction
 
 		// Handle RETURN key on WELCOME/COMEBACK screen to navigate to current day (same as arrow right)
-		if (currentState.Screen == navigation.ScreenWelcome || currentState.Screen == navigation.ScreenComeback) && (char == '\r' || char == '\n') {
+		if (currentState.Screen == navigation.ScreenWelcome || currentState.Screen == navigation.ScreenComeback) && (key == input.KeyEnter) {
 			direction = navigation.DirRight
 			logrus.Info("RETURN pressed on WELCOME - navigating to current day")
 		}
@@ -824,30 +708,7 @@ func runLogonMode(displayEngine *display.DisplayEngine, artManager *art.Manager,
 				displayEngine.Display(notYetPath, user)
 			}
 
-			// Wait for key press or 10 seconds, whichever comes first (no visible prompt)
-			if inputHandler != nil {
-				// Open input handler temporarily if not already open
-				if err := inputHandler.Open(); err == nil {
-					defer inputHandler.Close()
-
-					// Create a channel for key press
-					keyPressed := make(chan bool, 1)
-
-					// Start goroutine to wait for key press
-					go func() {
-						inputHandler.ReadKey()
-						keyPressed <- true
-					}()
-
-					// Wait for either key press or timeout
-					select {
-					case <-keyPressed:
-						logrus.Info("NOTYET: key pressed, exiting")
-					case <-time.After(10 * time.Second):
-						logrus.Info("NOTYET: timeout reached, exiting")
-					}
-				}
-			}
+			waitForKey(inputHandler, 10*time.Second)
 			return
 		}
 	}
@@ -898,7 +759,7 @@ func runLogonMode(displayEngine *display.DisplayEngine, artManager *art.Manager,
 	displayEngine.DisableBlinkMode() // Re-enable ICE mode
 	displayEngine.ShowCursor()
 	displayEngine.ClearScreen()
-	fmt.Print("\033[0m") // Reset colors
+	fmt.Fprint(gd.Output(), "\033[0m") // Reset colors
 }
 
 func cleanup(displayEngine *display.DisplayEngine, inputHandler *input.InputHandler, sessionManager *session.Manager) {
@@ -906,6 +767,6 @@ func cleanup(displayEngine *display.DisplayEngine, inputHandler *input.InputHand
 	inputHandler.Close()
 	displayEngine.DisableBlinkMode() // Re-enable ICE mode
 	displayEngine.ShowCursor()
-	displayEngine.ClearScreen() // ClearScreen already flushes
-	fmt.Print("\033[0m")        // Reset colors
+	displayEngine.ClearScreen()        // ClearScreen already flushes
+	fmt.Fprint(gd.Output(), "\033[0m") // Reset colors
 }

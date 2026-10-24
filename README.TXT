@@ -33,11 +33,11 @@ Run in logon mode (shows current day and exits):
   advent -logon -path /path/to/door32.sys
 
 
-IMPORTANT NOTE FOR WINDOWS 7 USERS
-----------------------------------
-DO NOT RENAME THE EXECUTABLE FILE. The program must be run with the exact 
-filename provided in the package to ensure proper operation.
-
+WINDOWS SUPPORT
+---------------
+Current releases use GoDoors and require Windows 10 / Server 2016 or later.
+Windows 7 and the former Go 1.20 build path are no longer supported.
+The door still accepts -path with the full path to door32.sys.
 
 IMPORTANT NOTE FOR LINUX USERS
 ------------------------------
