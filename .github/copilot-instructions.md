@@ -11,17 +11,16 @@ This is a Go-based BBS door program that displays ANSI art advent calendars. It'
 - **CLI-driven**: All configuration via command-line flags with sensible defaults
 - **Cross-platform BBS integration**: Windows socket inheritance vs Unix STDIN/STDOUT
 
-### Critical BBS Integration (`internal/bbs/`)
+### Critical BBS Integration (GoDoors)
 ```go
-// Windows: Inherits socket handle from parent BBS process
-door32Info, err := ParseDoor32(dropfilePath, socketHost)
-socketConn, err := CreateSocketFromHandle(door32Info.SocketHandle)
-
-// Linux: Uses STDIN/STDOUT directly
-conn.connType = ConnectionStdio
+// main converts -path's filename to its containing directory.
+info, err := gd.OpenSession(directory) // no probes until explicitly requested
+// Pair with gd.CloseSession(), use gd.ReadKey()/ReadKeyTimeout(), gd.Output().
 ```
 
-**Key Pattern**: All I/O must go through `BBSConnection` - never write directly to `os.Stdout` in BBS mode.
+GoDoors owns inherited Windows sockets and standard-I/O selection. There is no
+application-specific socket implementation. Never write caller-facing text
+straight to os.Stdout in BBS mode; use gd.Output() or DisplayEngine.
 
 ### Display Engine (`internal/display/`)
 - **Encoding handling**: `DualModeWriter` sends raw CP437 to BBS, UTF-8 to console
@@ -102,7 +101,7 @@ type State struct {
 - Documents the "why" behind current structure decisions
 
 ## Common Pitfalls
-- **Never** write to `os.Stdout` in BBS mode - always use `BBSConnection`
+- **Never** write to `os.Stdout` in BBS mode - always use GoDoors or the display engine
 - **Art validation** is required - missing files break user experience
 - **Date validation** is enforced by default - use debug flags for testing
 - **Cross-platform differences**: Windows uses socket inheritance, Linux uses STDIO

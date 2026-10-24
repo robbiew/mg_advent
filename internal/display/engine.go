@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
 	"strings"
 	"unicode/utf8"
 
+	gd "github.com/robbiew/godoors"
 	"golang.org/x/text/encoding/charmap"
 )
 
@@ -262,7 +262,7 @@ type DisplayEngine struct {
 // NewDisplayEngine creates a new display engine
 func NewDisplayEngine(config DisplayConfig, embeddedFS fs.FS) *DisplayEngine {
 	// Use buffered writer for stdout to ensure proper flushing on Windows
-	writer := bufio.NewWriter(os.Stdout)
+	writer := bufio.NewWriter(gd.Output())
 
 	return &DisplayEngine{
 		config:       config,
@@ -287,7 +287,7 @@ func (de *DisplayEngine) SetBBSConnection(bbsConn io.Writer) {
 		de.stdoutBuf = nil // BBS connection doesn't use stdout buffer
 	} else {
 		// Fall back to console only with buffered writer
-		de.stdoutBuf = bufio.NewWriter(os.Stdout)
+		de.stdoutBuf = bufio.NewWriter(gd.Output())
 		de.output = de.stdoutBuf
 	}
 }
@@ -295,7 +295,7 @@ func (de *DisplayEngine) SetBBSConnection(bbsConn io.Writer) {
 // Display displays the content of an ANSI file
 func (de *DisplayEngine) Display(filePath string, user User) error {
 	err := de.DisplayWithOverlay(filePath, user, "")
-	// Flush output immediately - critical for Windows 7 console
+	// Send buffered output before waiting for the next key.
 	de.flushOutput()
 	return err
 }
@@ -311,9 +311,6 @@ func (de *DisplayEngine) flushOutput() {
 		flusher.Flush()
 	}
 
-	// Force Windows console to flush
-	os.Stdout.Sync()
-	os.Stderr.Sync()
 }
 
 // DisplayWithOverlay displays the content of an ANSI file with optional overlay text

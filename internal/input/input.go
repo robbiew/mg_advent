@@ -1,13 +1,9 @@
 package input
 
 import (
-	"fmt"
-	"os"
-	"runtime"
+	"time"
 
-	"github.com/robbiew/advent/internal/bbs"
-	"github.com/sirupsen/logrus"
-	"golang.org/x/term"
+	gd "github.com/robbiew/godoors"
 )
 
 // Key represents a keyboard input
@@ -44,172 +40,70 @@ const (
 	KeyF12
 )
 
-// InputHandler manages keyboard input
-type InputHandler struct {
-	oldState  *term.State
-	bbsConn   *bbs.BBSConnection
-	isWindows bool
-}
+// InputHandler adapts GoDoors key events to the application's existing keys.
+type InputHandler struct{}
 
-// NewInputHandler creates a new input handler
-func NewInputHandler() *InputHandler {
-	return &InputHandler{
-		isWindows: runtime.GOOS == "windows",
-	}
-}
+func NewInputHandler() *InputHandler  { return &InputHandler{} }
+func (ih *InputHandler) Open() error  { return gd.OpenInput() }
+func (ih *InputHandler) Close() error { gd.CloseInput(); return nil }
 
-// SetBBSConnection sets the BBS connection for Windows socket I/O
-func (ih *InputHandler) SetBBSConnection(conn *bbs.BBSConnection) {
-	ih.bbsConn = conn
-}
-
-// Open initializes the terminal for raw input
-func (ih *InputHandler) Open() error {
-	if ih.isWindows && ih.bbsConn != nil {
-		// Windows with socket connection - no terminal setup needed
-		return nil
-	}
-
-	// Check if stdin is a terminal device
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		// Not a terminal (BBS door mode via pipe/socket) - no terminal setup needed
-		return nil
-	}
-
-	// Unix/Linux: Setup raw terminal mode for interactive terminal
-	// Get the current terminal state
-	oldState, err := term.GetState(int(os.Stdin.Fd()))
-	if err != nil {
-		return fmt.Errorf("failed to get terminal state: %w", err)
-	}
-	ih.oldState = oldState
-
-	// Make stdin raw
-	_, err = term.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil {
-		return fmt.Errorf("failed to make terminal raw: %w", err)
-	}
-
-	return nil
-}
-
-// Close restores the terminal to its original state
-func (ih *InputHandler) Close() error {
-	if ih.oldState != nil {
-		return term.Restore(int(os.Stdin.Fd()), ih.oldState)
-	}
-	return nil
-}
-
-// ReadKey reads a single key press
 func (ih *InputHandler) ReadKey() (rune, Key, error) {
-	var buf [256]byte
-	var n int
-	var err error
-
-	if ih.isWindows && ih.bbsConn != nil {
-		// Windows: Read from BBS socket connection
-		n, err = ih.bbsConn.Read(buf[:])
-	} else {
-		// Unix/Linux: Read from stdin
-		n, err = os.Stdin.Read(buf[:])
-	}
-
+	ch, key, err := gd.ReadKey()
 	if err != nil {
 		return 0, KeyUnknown, err
 	}
+	return translateKey(ch, key)
+}
 
-	if n == 0 {
-		return 0, KeyUnknown, nil
+func (ih *InputHandler) ReadKeyTimeout(timeout time.Duration) (rune, Key, error) {
+	ch, key, err := gd.ReadKeyTimeout(timeout)
+	if err != nil {
+		return 0, KeyUnknown, err
 	}
+	return translateKey(ch, key)
+}
 
-	// Debug: log raw bytes received
-	if n <= 10 {
-		logrus.WithFields(logrus.Fields{
-			"bytes": buf[:n],
-			"hex":   fmt.Sprintf("%x", buf[:n]),
-			"str":   fmt.Sprintf("%q", string(buf[:n])),
-		}).Debug("Input received")
-	}
-
-	// Handle escape sequences
-	if buf[0] == '\x1b' {
-		if n == 1 {
-			// Just ESC key pressed
-			return 0, KeyEsc, nil
-		}
-
-		// Check for escape sequences
-		seq := string(buf[:n])
-		switch seq {
-		case "\x1b[A", "\x1bOA": // Up arrow (normal and application mode)
-			return 0, KeyArrowUp, nil
-		case "\x1b[B", "\x1bOB": // Down arrow
-			return 0, KeyArrowDown, nil
-		case "\x1b[C", "\x1bOC": // Right arrow
-			return 0, KeyArrowRight, nil
-		case "\x1b[D", "\x1bOD": // Left arrow
-			return 0, KeyArrowLeft, nil
-		case "\x1b[5~": // Page Up
-			return 0, KeyPageUp, nil
-		case "\x1b[6~": // Page Down
-			return 0, KeyPageDown, nil
-		case "\x1b[1~", "\x1b[H", "\x1bOH": // Home
-			return 0, KeyHome, nil
-		case "\x1b[4~", "\x1b[F", "\x1bOF": // End
-			return 0, KeyEnd, nil
-		case "\x1b[2~": // Insert
-			return 0, KeyInsert, nil
-		case "\x1b[3~": // Delete
-			return 0, KeyDelete, nil
-		case "\x1b[11~", "\x1bOP": // F1
-			return 0, KeyF1, nil
-		case "\x1b[12~", "\x1bOQ": // F2
-			return 0, KeyF2, nil
-		case "\x1b[13~", "\x1bOR": // F3
-			return 0, KeyF3, nil
-		case "\x1b[14~", "\x1bOS": // F4
-			return 0, KeyF4, nil
-		case "\x1b[15~": // F5
-			return 0, KeyF5, nil
-		case "\x1b[17~": // F6
-			return 0, KeyF6, nil
-		case "\x1b[18~": // F7
-			return 0, KeyF7, nil
-		case "\x1b[19~": // F8
-			return 0, KeyF8, nil
-		case "\x1b[20~": // F9
-			return 0, KeyF9, nil
-		case "\x1b[21~": // F10
-			return 0, KeyF10, nil
-		case "\x1b[23~": // F11
-			return 0, KeyF11, nil
-		case "\x1b[24~": // F12
-			return 0, KeyF12, nil
-		default:
-			// Unknown escape sequence
-			logrus.WithField("sequence", fmt.Sprintf("%q", seq)).Debug("Unknown escape sequence")
-			return 0, KeyUnknown, nil
-		}
-	}
-
-	// Handle special keys
-	switch buf[0] {
-	case '\r', '\n':
+func translateKey(ch rune, key gd.Key) (rune, Key, error) {
+	switch key {
+	case gd.KeyEsc:
+		return 0, KeyEsc, nil
+	case gd.KeyEnter:
 		return 0, KeyEnter, nil
+	case gd.KeyUp:
+		return 0, KeyArrowUp, nil
+	case gd.KeyDown:
+		return 0, KeyArrowDown, nil
+	case gd.KeyLeft:
+		return 0, KeyArrowLeft, nil
+	case gd.KeyRight:
+		return 0, KeyArrowRight, nil
+	case gd.KeyPageUp:
+		return 0, KeyPageUp, nil
+	case gd.KeyPageDown:
+		return 0, KeyPageDown, nil
+	case gd.KeyHome:
+		return 0, KeyHome, nil
+	case gd.KeyEnd:
+		return 0, KeyEnd, nil
+	case gd.KeyInsert:
+		return 0, KeyInsert, nil
+	case gd.KeyDelete:
+		return 0, KeyDelete, nil
+	}
+	if key >= gd.KeyF1 && key <= gd.KeyF12 {
+		return 0, KeyF1 + Key(key-gd.KeyF1), nil
+	}
+	switch ch {
 	case ' ':
 		return 0, KeySpace, nil
-	case '\b', '\x7f':
+	case '\b', 0x7f:
 		return 0, KeyBackspace, nil
 	case '\t':
 		return 0, KeyTab, nil
-	default:
-		// Regular character
-		if buf[0] >= 32 && buf[0] <= 126 {
-			return rune(buf[0]), KeyUnknown, nil
-		}
 	}
-
+	if IsPrintable(ch) {
+		return ch, KeyUnknown, nil
+	}
 	return 0, KeyUnknown, nil
 }
 

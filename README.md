@@ -82,14 +82,16 @@ Art assets for DOS are in `dos/art/` (identical structure to modern art/).
 -logon                 Logon mode: show current day's door, then COMEBACK.ANS and exit
 -debug-date string     Override date (YYYY-MM-DD)
 -debug-disable-date    Disable date validation
--debug-disable-art     Disable art validation
+-local                 Run locally with UTF-8 art conversion
+-nodetect              Use 80x25 without terminal probes
+-noice                 Leave terminal ICE mode unchanged
 ```
 
 ## Building from Source
 
 ### For Modern Systems (Windows 10+, Linux, Mac)
 
-Prerequisites: Go 1.24 or later, Git
+Prerequisites: Go 1.21 or later, Git
 
 ```bash
 # Clone repository
@@ -100,45 +102,38 @@ cd mg_advent
 ./scripts/build.sh
 
 # Windows build
-scripts\build.bat
+go build -o mg-advent.exe ./cmd/advent
 ```
 
-### For Windows 7 32-bit Compatibility
+### BBS transport and Windows support
 
-Windows 7 requires Go 1.20 (last version with Windows 7 support).
+BBS connections, terminal probes, single-key input, and raw terminal setup now
+use [GoDoors](https://github.com/robbiew/godoors). The Advent display engine keeps
+its CP437 art processing, local UTF-8 conversion, overlays, scrolling, and ICE
+settings. Navigation keys, local mode, logon mode, and the existing session timers
+remain application features.
 
-**One-time setup:**
+`-path` still accepts the full path to `door32.sys` (case-insensitive filename);
+a directory containing it is also accepted. Windows uses the inherited socket
+when supplied, while Linux/macOS and redirected Windows standard I/O use the
+standard streams. No connection is made to a port inferred from a socket handle.
+`-nodetect` opens the connection without issuing terminal queries. Detection
+shares its buffered input with navigation so typed keys are retained.
 
-```bash
-# Install Go 1.20.14 toolchain
-go install golang.org/dl/go1.20.14@latest
-go1.20.14 download
-```
+Go 1.21 or later is required. Current Windows builds require Windows 10 / Server
+2016 or later. The former Go 1.20 / Windows 7 build path is retired; the DOS tree
+is unchanged. `WINDOWS7-FIX.md` is historical documentation for older releases.
 
-**Building:**
+Build directly on Windows with `go build -o mg-advent.exe ./cmd/advent`. The Unix
+build script still produces Linux amd64/arm64 binaries and `mg-advent.exe` for
+Windows 386, using the installed Go toolchain. Windows resources are optional.
 
-```bash
-# Linux/Mac (cross-compile)
-./scripts/build.sh  # Automatically uses go1.20.14 for Windows builds
-
-# Windows
-scripts\build.bat   # Checks for go1.20.14, shows install instructions if needed
-
-# Manual build
-GOOS=windows GOARCH=386 CGO_ENABLED=0 ~/go/bin/go1.20.14 build -ldflags="-s -w" -o dist/mg-advent.exe ./cmd/advent
-```
-
-**Note:** The build scripts automatically:
-
-- Detect and use Go 1.20.14 for Windows builds (Windows 7 compatibility)
-- Embed a Windows application manifest to prevent the 15-20 second delay when renaming executables on Windows 7
-
-**Windows 7 Rename Delay Fix:** The build scripts will automatically embed a manifest if `windres` is available. To enable this:
-
-**Linux/Mac:** `sudo apt-get install mingw-w64` or `brew install mingw-w64`
-**Windows:** Install MinGW-w64 from https://www.mingw-w64.org/ or `choco install mingw`
-
-If `windres` is not available, the build will still succeed but renamed executables may experience a 15-20 second startup delay on Windows 7. See [`WINDOWS7-FIX.md`](WINDOWS7-FIX.md) for details.
+When developing companion GoDoors API changes in a sibling checkout, create an
+ignored local workspace with `go work init . ../godoors`. The module dependency
+is pinned in `go.mod`; no local filesystem replacement is required in that file.
+The companion revision must be published before a fresh clone or CI can download
+it. Until then, use the sibling `codex/mg-advent-integration-api` branch in that
+local workspace.
 
 ## Testing
 
