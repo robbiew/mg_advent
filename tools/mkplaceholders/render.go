@@ -144,7 +144,8 @@ func menuLines(year int, earlier []int) []line {
 	}
 	return append(out,
 		line{"[ ]  or  PGUP PGDN   previous / next year", cyan},
-		line{"I  INFOFILE      M  MEMBERLIST      Q  QUIT", cyan})
+		line{"I  INFO   M  MEMBERS   A  CREDITS   S  SLIDESHOW", cyan},
+		line{"?  HELP      Q  QUIT", cyan})
 }
 
 func tallScreen(s screen, year int) []string {

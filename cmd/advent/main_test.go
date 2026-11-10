@@ -116,10 +116,28 @@ func artLine(t *testing.T, path string) []byte {
 	t.Helper()
 	de := newDisplayEngine(80, 25)
 	lines, err := de.LoadAnsiLines(path)
-	if err != nil || len(lines) < 6 {
+	if err != nil {
 		t.Fatalf("load %s: %v", path, err)
 	}
-	line, err := charmap.CodePage437.NewDecoder().Bytes([]byte(lines[5]))
+	sample := ""
+	if len(lines) >= 6 {
+		sample = lines[5]
+	} else {
+		// Art drawn for autowrap has a few very long lines; take a stretch
+		// from the middle of the longest (CP437 is one byte per character).
+		longest := ""
+		for _, l := range lines {
+			if len(l) > len(longest) {
+				longest = l
+			}
+		}
+		if len(longest) < 200 {
+			t.Fatalf("%s: too little art to sample", path)
+		}
+		mid := len(longest) / 2
+		sample = longest[mid : mid+80]
+	}
+	line, err := charmap.CodePage437.NewDecoder().Bytes([]byte(sample))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,5 +257,103 @@ func TestNewSeasonOpensOnDecemberFirst(t *testing.T) {
 	during := runDoorProcess(t, "q", "-local", "-nodetect", "-debug-date=2026-12-03")
 	if !bytes.Contains(during, welcome2026) {
 		t.Fatal("2026 did not open as the live season on Dec 3")
+	}
+}
+
+// runDoorScript runs the door with keys sent over time: each step is a
+// string to type or a time.Duration to wait. Stdin closes after the last step.
+func runDoorScript(t *testing.T, args []string, steps ...any) []byte {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], append([]string{"-test.run=^TestDoorProcess$"}, args...)...)
+	cmd.Env = append(os.Environ(), "MG_ADVENT_TEST_PROCESS=1")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	for _, step := range steps {
+		switch s := step.(type) {
+		case string:
+			stdin.Write([]byte(s))
+		case time.Duration:
+			time.Sleep(s)
+		}
+	}
+	stdin.Close()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("door process: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		cmd.Process.Kill()
+		t.Fatal("door did not exit")
+	}
+	return stdout.Bytes()
+}
+
+func TestHelpScreen(t *testing.T) {
+	out := runDoorProcess(t, "?xq", "-local", "-nodetect", "-debug-date=2026-07-04")
+	if !bytes.Contains(out, []byte("Advent Calendar keys")) || !bytes.Contains(out, []byte("type a door number")) {
+		t.Fatal("? did not show the key help")
+	}
+}
+
+func TestOffSeasonCountdown(t *testing.T) {
+	out := runDoorProcess(t, "q", "-local", "-nodetect", "-debug-date=2026-11-10")
+	if !bytes.Contains(out, []byte("The 2026 calendar opens in 21 days")) {
+		t.Fatal("welcome screen did not show the countdown")
+	}
+	if out := runDoorProcess(t, "q", "-local", "-nodetect", "-debug-date=2026-12-03"); bytes.Contains(out, []byte("calendar opens")) {
+		t.Fatal("countdown shown during the season")
+	}
+}
+
+func TestArtistCredits(t *testing.T) {
+	// 2025 door 1 is "Lamplight" by LDA / Mistigris.
+	out := runDoorProcess(t, "\raxqq", "-local", "-nodetect", "-debug-date=2026-07-04")
+	for _, want := range []string{"About this art", "Lamplight", "LDA", "Mistigris"} {
+		if !bytes.Contains(out, []byte(want)) {
+			t.Errorf("credits panel is missing %q", want)
+		}
+	}
+}
+
+func TestEnterOpensTodaysDoor(t *testing.T) {
+	today := artLine(t, "art/2025/03_DEC25.ANS")
+	first := artLine(t, "art/2025/01_DEC25.ANS")
+	out := runDoorProcess(t, "\rqq", "-local", "-nodetect", "-debug-date=2025-12-03")
+	if !bytes.Contains(out, today) {
+		t.Fatal("Enter on 3 December did not open door 3")
+	}
+	if !bytes.Equal(today, first) && bytes.Contains(out, first) {
+		t.Fatal("Enter opened door 1 during the season")
+	}
+}
+
+func TestJumpToDoorNumber(t *testing.T) {
+	door12 := artLine(t, "art/2025/12_DEC25.ANS")
+	out := runDoorScript(t, []string{"-local", "-nodetect", "-debug-date=2026-07-04"},
+		"\r", 300*time.Millisecond, "12", 300*time.Millisecond, "qq")
+	if !bytes.Contains(out, door12) {
+		t.Fatal("typing 12 on a door did not open door 12")
+	}
+}
+
+func TestSlideshowAdvances(t *testing.T) {
+	door3 := artLine(t, "art/2025/03_DEC25.ANS")
+	out := runDoorScript(t, []string{"-local", "-nodetect", "-debug-date=2026-07-04", "-slide=150ms"},
+		300*time.Millisecond, "s", 900*time.Millisecond, "q", 200*time.Millisecond, "qq")
+	if !bytes.Contains(out, []byte("Slideshow")) {
+		t.Fatal("no slideshow note")
+	}
+	if !bytes.Contains(out, door3) {
+		t.Fatal("slideshow did not advance to door 3")
 	}
 }

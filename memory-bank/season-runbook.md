@@ -28,14 +28,16 @@ Checklist for the artists:
 - Avoid the 80th column; the door cuts lines to 79 cells anyway.
 - WELCOME (and COMEBACK, which callers see after today's door) is the year
   menu: show `1`/`2`/`3`… for the earlier years (oldest = 1), `I` info,
-  `M` member list, `Q` quit, arrows/Enter to browse.
+  `M` member list, `Q` quit, arrows/Enter to browse. Optionally `A` credits,
+  `S` slideshow and `?` help, which work on every screen.
+- Fill in the SAUCE title, artist and group: `A` shows them to callers.
 - INFOFILE and MEMBERS may be any height; they scroll above the footer.
 - SAUCE records are fine; they are stripped.
 
 Track what is left:
 
 ```bash
-grep -rl ADVENT-PLACEHOLDER internal/embedded/art/2026   # files still to replace
+grep -rla ADVENT-PLACEHOLDER internal/embedded/art/2026   # files still to replace (-a: art looks binary)
 ```
 
 The door also logs the remaining placeholders (`-log file`) when it opens the year.
@@ -72,7 +74,7 @@ next to them.
 
 ## 4. Release
 
-1. `grep -rl ADVENT-PLACEHOLDER internal/embedded/art` prints nothing.
+1. `grep -rla ADVENT-PLACEHOLDER internal/embedded/art` prints nothing.
 2. Update the release-package files in `internal/embedded/` (FILE_ID.ANS,
    FILE_ID.DIZ, INFOFILE.ANS, MEMBERS.ANS, LICENSE.TXT) for the new pack.
 3. `./scripts/build.sh`, `./scripts/package.sh`, `./scripts/release.sh vX.Y.Z`.

@@ -193,9 +193,13 @@ func splitArt(s string) []string {
 	return lines
 }
 
-// fit80Columns keeps art off column 80. A terminal wraps after the 80th
-// character, so an 80-character line followed by CRLF would skip a row, and
-// a character in the bottom-right cell would scroll the whole screen.
+// fit80Columns keeps art from pushing the screen around on an 80-column
+// terminal. Much art is drawn for the terminal's own wrap at column 80: one
+// line of 160 characters fills two rows. So lines are never cut to fit.
+// Instead, as the door always has, a line reaching 80 characters loses its
+// last character (an 80-character line followed by CRLF would otherwise skip
+// a row on terminals without a last-column flag), and on a screen filled
+// exactly, the bottom row stops at column 79 so the screen can't scroll.
 func fit80Columns(lines []string, height int) []string {
 	out := make([]string, len(lines))
 	if len(lines) == 1 {
@@ -212,9 +216,25 @@ func fit80Columns(lines []string, height int) []string {
 		return out
 	}
 	for i, line := range lines {
-		out[i] = truncateVisible(line, 79)
+		if n := countVisibleChars(line); n >= 80 {
+			line = truncateVisible(line, n-1)
+		}
+		if len(lines) == height && i == height-1 {
+			line = truncateVisible(line, 79)
+		}
+		out[i] = line
 	}
 	return out
+}
+
+// wraps reports whether any of lines fills more than one screen row.
+func wraps(lines []string) bool {
+	for _, l := range lines {
+		if countVisibleChars(l) >= 80 {
+			return true
+		}
+	}
+	return false
 }
 
 // escapeLen returns the length of the escape sequence starting at s[i]
@@ -349,9 +369,13 @@ func (de *DisplayEngine) RenderScrollableContentOnly(lines []string, scrollPos i
 	if len(lines) == 0 {
 		return nil
 	}
-	defer de.flush()
 	rows := de.contentRows()
-	de.drawRows(lines, clampScroll(scrollPos, len(lines), rows), rows, true)
+	pos := clampScroll(scrollPos, len(lines), rows)
+	if wraps(lines[pos:min(pos+rows, len(lines))]) {
+		return de.RenderScrollable(lines, pos) // see scrollBy
+	}
+	defer de.flush()
+	de.drawRows(lines, pos, rows, true)
 	return nil
 }
 
@@ -372,6 +396,14 @@ func (de *DisplayEngine) scrollBy(delta int) error {
 	de.scroll.CurrentLine = pos
 	de.updateScrollState()
 	defer de.flush()
+	window := de.content[pos:min(pos+de.config.Height, len(de.content))]
+	if wraps(window) {
+		// Rows can't be repainted one per line when a line wraps onto the
+		// next row; redraw the window from the top instead.
+		de.clear()
+		de.drawRows(de.content, pos, de.config.Height, false)
+		return nil
+	}
 	de.drawRows(de.content, pos, de.config.Height, true)
 	return nil
 }
@@ -422,6 +454,56 @@ func (de *DisplayEngine) EnableBlinkMode() {
 func (de *DisplayEngine) ResetAttributes() {
 	de.out.WriteString(Reset)
 	de.flush()
+}
+
+// ShowLabel prints a short note in the bottom-right corner over the current
+// screen, e.g. a countdown or the digits of a door number being typed.
+func (de *DisplayEngine) ShowLabel(text string) {
+	defer de.flush()
+	de.renderLabel(text)
+}
+
+// ShowPanel clears the screen and draws title and lines in a centred box,
+// with a "press any key" hint. Lines are CP437 text without escapes; long
+// ones are cut to fit the screen.
+func (de *DisplayEngine) ShowPanel(title string, lines []string) {
+	defer de.flush()
+	de.out.WriteString(Reset)
+	de.clear()
+
+	// CP437 double-line box: ╔ ═ ╗ ║ ╚ ╝, with the title between ╡ and ╞.
+	const (
+		tl, tr, bl, br, h, v = "\xc9", "\xbb", "\xc8", "\xbc", "\xcd", "\xba"
+		titleL, titleR       = "\xb5 ", " \xc6"
+		hint                 = " press any key "
+	)
+	maxInner := min(de.config.Width, 80) - 3 // the box never reaches column 80
+	title = title[:min(len(title), maxInner-len(titleL)-len(titleR)-2)]
+	inner := max(len(title)+len(titleL)+len(titleR)+2, len(hint)+2)
+	for _, l := range lines {
+		inner = max(inner, len(l)+2)
+	}
+	inner = min(inner, maxInner)
+
+	rows := len(lines) + 2 // a blank row above and below the text
+	top := max((de.config.Height-rows-2)/2, 0) + 1
+	left := max((de.config.Width-inner-2)/2, 0) + 1
+	border := Esc + "0;1;36m" // bright cyan
+	text := Esc + "0;1;37m"   // bright white
+	row := func(n int, s string) { fmt.Fprintf(de.out, Esc+"%d;%dH%s", top+n, left, s) }
+	body := func(s string) string {
+		s = " " + s[:min(len(s), inner-2)]
+		return border + v + text + s + strings.Repeat(" ", inner-len(s)) + border + v
+	}
+
+	heading := titleL + title + titleR
+	row(0, border+tl+h+heading+strings.Repeat(h, inner-1-len(heading))+tr)
+	row(1, body(""))
+	for i, l := range lines {
+		row(2+i, body(l))
+	}
+	row(rows, body(""))
+	row(rows+1, border+bl+strings.Repeat(h, inner-len(hint)-1)+hint+h+br+Reset)
 }
 
 // ShowMessage clears the screen and prints a one-line notice in its centre.

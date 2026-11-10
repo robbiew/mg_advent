@@ -40,6 +40,7 @@ var (
 	noIce        = flag.Bool("noice", false, "don't send the blink/iCE colour mode sequence")
 	noDetect     = flag.Bool("nodetect", false, "disable terminal size detection (use default 80x25)")
 	logFile      = flag.String("log", "", "append a detailed log to this file (default: errors only, to stderr)")
+	slideEvery   = flag.Duration("slide", 8*time.Second, "slideshow: how long each door is shown")
 )
 
 const (
@@ -271,16 +272,36 @@ type errSessionOver struct{ reason session.Reason }
 
 func (e errSessionOver) Error() string { return "session ended: " + e.reason.String() }
 
+// errNoKey reports that readKeyWithin's own wait ended without a key.
+var errNoKey = errors.New("no key pressed")
+
 // readKey waits for the caller's next key within the session's limits.
 func readKey(in *input.InputHandler, sess *session.Manager) (rune, input.Key, error) {
+	return readKeyWithin(in, sess, 0)
+}
+
+// readKeyWithin is readKey that also gives up after within (if > 0) with
+// errNoKey, e.g. to advance a slideshow.
+func readKeyWithin(in *input.InputHandler, sess *session.Manager, within time.Duration) (rune, input.Key, error) {
+	var giveUp time.Time
+	if within > 0 {
+		giveUp = time.Now().Add(within)
+	}
 	for {
 		wait, reason := sess.Next()
 		if wait <= 0 {
 			return 0, input.KeyUnknown, errSessionOver{reason}
 		}
+		if !giveUp.IsZero() {
+			left := time.Until(giveUp)
+			if left <= 0 {
+				return 0, input.KeyUnknown, errNoKey
+			}
+			wait = min(wait, left)
+		}
 		ch, key, err := in.ReadKeyTimeout(wait)
 		if errors.Is(err, input.ErrTimeout) {
-			continue // re-check: the limit has now passed
+			continue // re-check which limit has passed
 		}
 		if err != nil {
 			return 0, input.KeyUnknown, err
@@ -318,197 +339,6 @@ func displayNotYet(displayEngine *display.DisplayEngine, artManager *art.Manager
 
 func waitForKey(handler *input.InputHandler, timeout time.Duration) {
 	_, _, _ = handler.ReadKeyTimeout(timeout)
-}
-
-// scrollView is a screen with a footer (Info, Members) whose art scrolls
-// under the footer one line or one page at a time.
-type scrollView struct {
-	lines []string
-	pos   int
-}
-
-func openScrollView(displayEngine *display.DisplayEngine, artPath string) *scrollView {
-	lines, err := displayEngine.LoadAnsiLines(artPath)
-	if err != nil {
-		lines = []string{fmt.Sprintf("[Unable to load %s]", artPath)}
-	}
-	return &scrollView{lines: lines}
-}
-
-func (v *scrollView) render(displayEngine *display.DisplayEngine) {
-	displayEngine.SetScrollState(v.pos, len(v.lines))
-	displayEngine.RenderScrollable(v.lines, v.pos)
-}
-
-// handleKey scrolls for arrow/page keys and reports whether it used the key.
-func (v *scrollView) handleKey(displayEngine *display.DisplayEngine, key input.Key) bool {
-	rows := displayEngine.GetScrollState().VisibleLines
-	last := max(len(v.lines)-rows, 0)
-	pos := v.pos
-	switch key {
-	case input.KeyArrowUp:
-		pos--
-	case input.KeyArrowDown:
-		pos++
-	case input.KeyPageUp:
-		pos -= rows
-	case input.KeyPageDown:
-		pos += rows
-	case input.KeyHome:
-		pos = 0
-	case input.KeyEnd:
-		pos = last
-	default:
-		return false
-	}
-	pos = max(0, min(pos, last))
-	if pos == v.pos {
-		return key != input.KeyArrowUp && key != input.KeyArrowDown
-	}
-	v.pos = pos
-	displayEngine.RenderScrollableContentOnly(v.lines, v.pos)
-	return true
-}
-
-func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
-	navigator *navigation.Navigator, inputHandler *input.InputHandler,
-	sess *session.Manager, state navigation.State) {
-
-	currentState := state
-	var currentArtPath string
-	var view *scrollView // the open Info/Members screen, if any
-
-	for {
-		var artPath string
-		switch currentState.Screen {
-		case navigation.ScreenWelcome:
-			artPath = artManager.GetPath(currentState.CurrentYear, 0, "welcome")
-		case navigation.ScreenDay:
-			artPath = artManager.GetPath(currentState.CurrentYear, currentState.CurrentDay, "day")
-		case navigation.ScreenComeback:
-			artPath = artManager.GetPath(currentState.CurrentYear, 0, "comeback")
-		case navigation.ScreenInfo:
-			artPath = artManager.GetPath(currentState.CurrentYear, 0, "info")
-		case navigation.ScreenMembers:
-			artPath = artManager.GetPath(currentState.CurrentYear, 0, "members")
-		}
-
-		if artPath != "" && artPath != currentArtPath {
-			slog.Debug("displaying art", "path", artPath, "screen", currentState.Screen, "day", currentState.CurrentDay)
-			if currentState.Screen == navigation.ScreenInfo || currentState.Screen == navigation.ScreenMembers {
-				view = openScrollView(displayEngine, artPath)
-				view.render(displayEngine)
-			} else {
-				view = nil
-				if err := displayEngine.Display(artPath); err != nil {
-					slog.Error("failed to display art", "path", artPath, "err", err)
-				}
-			}
-			currentArtPath = artPath
-		}
-
-		char, key, err := readKey(inputHandler, sess)
-		if err != nil {
-			var over errSessionOver
-			if errors.As(err, &over) {
-				slog.Info("session limit reached", "reason", over.reason)
-				showSessionOver(displayEngine, over.reason)
-			} else {
-				slog.Info("input closed; ending door session", "err", err)
-			}
-			return
-		}
-
-		if view != nil && view.handleKey(displayEngine, key) {
-			continue
-		}
-
-		onYearMenu := currentState.Screen == navigation.ScreenWelcome || currentState.Screen == navigation.ScreenComeback
-
-		// Handle quit/back navigation
-		if char == 'q' || char == 'Q' || key == input.KeyEsc {
-			latestYear := currentState.AvailableYears[len(currentState.AvailableYears)-1]
-
-			switch {
-			case onYearMenu && currentState.CurrentYear == latestYear:
-				// Exit from the newest year's welcome/comeback screen
-				slog.Info("user requested exit")
-				displayEngine.Display(artManager.GetPath(currentState.CurrentYear, 0, "goodbye"))
-				waitForKey(inputHandler, exitScreenWait)
-				return
-			case view != nil:
-				// Return to welcome screen from Info/Members
-				currentState.Screen = navigation.ScreenWelcome
-			case currentState.CurrentYear != latestYear:
-				// Back to the newest year's welcome screen, recomputing its open days
-				if newState, err := navigator.SelectYear(latestYear, currentState); err == nil {
-					currentState = newState
-				}
-			default:
-				currentState.Screen = navigation.ScreenWelcome
-			}
-			continue
-		}
-
-		if onYearMenu {
-			switch {
-			case char >= '1' && char <= '9':
-				if newState, err := navigator.SelectYearByIndex(int(char-'0'), currentState); err == nil {
-					slog.Info("year selected", "year", newState.CurrentYear)
-					currentState = newState
-				}
-				continue
-			case char == 'i' || char == 'I':
-				currentState.Screen = navigation.ScreenInfo
-				continue
-			case char == 'm' || char == 'M':
-				currentState.Screen = navigation.ScreenMembers
-				continue
-			case char == '[' || key == input.KeyPageUp:
-				currentState = navigator.StepYear(-1, currentState)
-				continue
-			case char == ']' || key == input.KeyPageDown:
-				currentState = navigator.StepYear(1, currentState)
-				continue
-			}
-		}
-
-		// Handle scrolling of tall day art
-		if currentState.Screen == navigation.ScreenDay {
-			scrollState := displayEngine.GetScrollState()
-			if key == input.KeyArrowUp && scrollState.CanScrollUp {
-				displayEngine.ScrollUp()
-				continue
-			}
-			if key == input.KeyArrowDown && scrollState.CanScrollDown {
-				displayEngine.ScrollDown()
-				continue
-			}
-		}
-
-		var direction navigation.Direction
-		switch key {
-		case input.KeyEnter:
-			if onYearMenu {
-				direction = navigation.DirRight // RETURN opens the calendar like arrow right
-			}
-		case input.KeyArrowRight:
-			direction = navigation.DirRight
-		case input.KeyArrowLeft:
-			direction = navigation.DirLeft
-		case input.KeyPageUp:
-			direction = navigation.DirPageUp
-		case input.KeyPageDown:
-			direction = navigation.DirPageDown
-		case input.KeyHome:
-			direction = navigation.DirHome
-		case input.KeyEnd:
-			direction = navigation.DirEnd
-		}
-		if direction != navigation.DirNone {
-			currentState = navigator.Navigate(direction, currentState)
-		}
-	}
 }
 
 // runLogonMode shows today's door once at logon, then returns to the BBS. The

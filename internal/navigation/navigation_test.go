@@ -124,8 +124,8 @@ func TestSelectYearRecomputesDays(t *testing.T) {
 	}
 	state.CurrentDay, state.Screen = 20, ScreenDay
 	state, err = n.SelectYear(2026, state)
-	if err != nil || state.MaxDay != 3 || state.CurrentDay != 1 || state.Screen != ScreenWelcome {
-		t.Fatalf("back to live year: %+v, %v", state, err)
+	if err != nil || state.MaxDay != 3 || state.CurrentDay != 3 || state.Screen != ScreenWelcome {
+		t.Fatalf("back to live year should start at today's door: %+v, %v", state, err)
 	}
 	if _, err := n.SelectYear(2031, state); err == nil {
 		t.Fatal("selecting an unavailable year should fail")
@@ -172,5 +172,77 @@ func TestStepYear(t *testing.T) {
 	}
 	if state.CurrentYear != 2023 {
 		t.Fatalf("should stop at the oldest year, got %d", state.CurrentYear)
+	}
+}
+
+func TestEnterOpensTodaysDoorInSeason(t *testing.T) {
+	live := navAt(t, "2026-12-03")
+	state, _ := live.GetInitialState()
+	if s := live.Navigate(DirRight, state); s.Screen != ScreenDay || s.CurrentDay != 3 {
+		t.Fatalf("live season should open today's door, got %+v", s)
+	}
+	archive, _ := live.SelectYear(2024, state)
+	if s := live.Navigate(DirRight, archive); s.CurrentDay != 1 {
+		t.Fatalf("archive year should open door 1, got %d", s.CurrentDay)
+	}
+	unlocked := navAt(t, "2026-12-03")
+	unlocked.SetDisableDateCheck(true)
+	if s, _ := unlocked.GetInitialState(); s.CurrentDay != 1 {
+		t.Fatalf("with dates unlocked, start at door 1; got %d", s.CurrentDay)
+	}
+}
+
+func TestDayScreenKeys(t *testing.T) {
+	n := navAt(t, "2026-12-20")
+	day := State{CurrentYear: 2026, CurrentDay: 8, MaxDay: 20, Screen: ScreenDay}
+	cases := []struct {
+		dir  Direction
+		want int
+	}{{DirHome, 1}, {DirEnd, 20}, {DirPageUp, 3}, {DirPageDown, 13}}
+	for _, c := range cases {
+		if s := n.Navigate(c.dir, day); s.CurrentDay != c.want || s.Screen != ScreenDay {
+			t.Errorf("direction %v from door 8: got door %d", c.dir, s.CurrentDay)
+		}
+	}
+	day.CurrentDay = 18
+	if s := n.Navigate(DirPageDown, day); s.CurrentDay != 20 {
+		t.Errorf("PgDn should stop at the last open door, got %d", s.CurrentDay)
+	}
+	day.CurrentDay = 2
+	if s := n.Navigate(DirPageUp, day); s.CurrentDay != 1 {
+		t.Errorf("PgUp should stop at door 1, got %d", s.CurrentDay)
+	}
+}
+
+func TestJumpToDay(t *testing.T) {
+	n := navAt(t, "2026-12-10")
+	state := State{CurrentYear: 2026, CurrentDay: 1, MaxDay: 10, Screen: ScreenDay}
+	if s, ok := n.JumpToDay(7, state); !ok || s.CurrentDay != 7 {
+		t.Fatalf("jump to 7: %+v %v", s, ok)
+	}
+	for _, d := range []int{0, 11, 26} {
+		if _, ok := n.JumpToDay(d, state); ok {
+			t.Errorf("door %d should not be reachable", d)
+		}
+	}
+}
+
+func TestNextOpening(t *testing.T) {
+	cases := []struct {
+		date       string
+		year, days int
+		ok         bool
+	}{
+		{"2026-11-10", 2026, 21, true},
+		{"2026-11-30", 2026, 1, true},
+		{"2027-01-01", 2027, 334, true},
+		{"2026-12-03", 0, 0, false},
+		{"2026-12-28", 0, 0, false},
+	}
+	for _, c := range cases {
+		y, d, ok := navAt(t, c.date).NextOpening()
+		if y != c.year || d != c.days || ok != c.ok {
+			t.Errorf("%s: got (%d, %d, %v), want (%d, %d, %v)", c.date, y, d, ok, c.year, c.days, c.ok)
+		}
 	}
 }

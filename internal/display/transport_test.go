@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"io/fs"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -128,12 +130,93 @@ func TestSplitArtTrimsOnlySauce(t *testing.T) {
 }
 
 func TestFit80Columns(t *testing.T) {
-	line := Esc + "31m" + strings.Repeat("x", 85) + Reset
-	got := fit80Columns([]string{line, "short"}, 25)
+	// A line of exactly 80 cells loses its last cell (and keeps its codes).
+	line80 := Esc + "31m" + strings.Repeat("x", 80) + Reset
+	got := fit80Columns([]string{line80, "short"}, 25)
 	if countVisibleChars(got[0]) != 79 || !strings.HasSuffix(got[0], Reset) {
-		t.Fatalf("line not cut to 79 cells with trailing codes kept: %q", got[0])
+		t.Fatalf("80-cell line: %q", got[0])
 	}
 	if got[1] != "short" {
 		t.Fatalf("short line changed: %q", got[1])
+	}
+	// Art drawn for autowrap keeps its wrapped rows.
+	wrapped := strings.Repeat("y", 160)
+	if got := fit80Columns([]string{wrapped, "next"}, 25); countVisibleChars(got[0]) != 159 {
+		t.Fatalf("wrapping line cut to %d cells, want 159", countVisibleChars(got[0]))
+	}
+	// On a screen filled exactly, the bottom row stops at column 79.
+	full := make([]string, 25)
+	for i := range full {
+		full[i] = "row"
+	}
+	full[24] = strings.Repeat("z", 200)
+	if got := fit80Columns(full, 25); countVisibleChars(got[24]) != 79 {
+		t.Fatalf("bottom row has %d cells, want 79", countVisibleChars(got[24]))
+	}
+}
+
+// No bundled art may lose more than the one cell the door has always
+// dropped from a line reaching column 80 (bottom row of a full screen aside).
+func TestBundledArtKeepsItsContent(t *testing.T) {
+	err := fs.WalkDir(embedded.ArtFS, "art", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".ANS") {
+			return err
+		}
+		raw, _ := fs.ReadFile(embedded.ArtFS, p)
+		before := splitArt(string(raw))
+		after := fit80Columns(before, 25)
+		for i := range before {
+			if len(before) == 25 && i == 24 {
+				continue
+			}
+			if lost := countVisibleChars(before[i]) - countVisibleChars(after[i]); lost > 1 {
+				t.Errorf("%s line %d lost %d characters", p, i+1, lost)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestScrollRedrawsWrappedArt(t *testing.T) {
+	rows := []string{strings.Repeat("w", 120)}
+	for i := 2; i <= 40; i++ {
+		rows = append(rows, fmt.Sprintf("row %02d", i))
+	}
+	fs := fstest.MapFS{"art/wrap.ans": {Data: []byte(strings.Join(rows, "\r\n"))}}
+	var out countingWriter
+	de := engineTo(ModeCP437Raw, fs, &out)
+	de.Display("art/wrap.ans")
+	out.Reset()
+	de.ScrollUp() // at the top: nothing happens
+	de.ScrollDown()
+	if strings.Contains(out.String(), EraseScreen) {
+		t.Fatal("window without wrapping lines should repaint in place")
+	}
+	de.ScrollUp() // back to a window whose first line wraps
+	if !strings.Contains(out.String(), EraseScreen) {
+		t.Fatal("window with a wrapping line should be redrawn, not repainted per row")
+	}
+}
+
+// Panels must stay inside 79 columns, whatever they're given.
+func TestPanelFitsTheScreen(t *testing.T) {
+	var out countingWriter
+	de := engineTo(ModeCP437Raw, fstest.MapFS{}, &out)
+	long := strings.Repeat("x", 200)
+	de.ShowPanel(long, []string{"short", long})
+	rows := regexp.MustCompile(`\x1b\[(\d+);(\d+)H`)
+	parts := rows.Split(out.String(), -1)
+	cols := rows.FindAllStringSubmatch(out.String(), -1)
+	if len(cols) < 4 {
+		t.Fatalf("panel drew %d rows", len(cols))
+	}
+	for i, m := range cols {
+		col, _ := strconv.Atoi(m[2])
+		if end := col - 1 + countVisibleChars(parts[i+1]); end > 79 {
+			t.Errorf("panel row %s reaches column %d", m[1], end)
+		}
 	}
 }

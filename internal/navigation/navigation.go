@@ -153,6 +153,44 @@ func (n *Navigator) LiveYear() (int, bool) {
 	return 0, false
 }
 
+// dayPage is how many doors PgUp/PgDn move on a day screen.
+const dayPage = 5
+
+// JumpToDay opens door day of the current year if it is open.
+func (n *Navigator) JumpToDay(day int, state State) (State, bool) {
+	if day < 1 || day > state.MaxDay {
+		return state, false
+	}
+	state.Screen = ScreenDay
+	state.CurrentDay = day
+	return state, true
+}
+
+// startDay is the door Enter opens on year's welcome screen: today's door
+// while the year is the live season, otherwise door 1.
+func (n *Navigator) startDay(year int) int {
+	if live, ok := n.LiveYear(); ok && live == year && !n.unlockAll {
+		return max(n.MaxDay(year), 1)
+	}
+	return 1
+}
+
+// NextOpening reports, outside the season, which year's calendar opens next
+// and how many days remain until its 1 December. ok is false in December
+// and when the date check is disabled.
+func (n *Navigator) NextOpening() (year, days int, ok bool) {
+	if n.unlockAll {
+		return 0, 0, false
+	}
+	now := n.now()
+	if now.Month() == time.December {
+		return 0, 0, false
+	}
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	opens := time.Date(now.Year(), time.December, 1, 0, 0, 0, 0, time.UTC)
+	return now.Year(), int(opens.Sub(today).Hours() / 24), true
+}
+
 // Navigate moves from the current screen in direction. Keys that don't
 // apply to the screen leave the state unchanged.
 func (n *Navigator) Navigate(direction Direction, state State) State {
@@ -177,6 +215,14 @@ func (n *Navigator) Navigate(direction Direction, state State) State {
 			} else {
 				state.Screen = ScreenWelcome
 			}
+		case DirHome:
+			state.CurrentDay = 1
+		case DirEnd:
+			state.CurrentDay = max(state.MaxDay, 1)
+		case DirPageUp:
+			state.CurrentDay = max(state.CurrentDay-dayPage, 1)
+		case DirPageDown:
+			state.CurrentDay = max(min(state.CurrentDay+dayPage, state.MaxDay), 1)
 		}
 	case ScreenComeback:
 		if direction == DirLeft {
@@ -195,7 +241,7 @@ func (n *Navigator) SelectYear(year int, state State) (State, error) {
 	}
 	state.CurrentYear = year
 	state.MaxDay = n.MaxDay(year)
-	state.CurrentDay = 1
+	state.CurrentDay = n.startDay(year)
 	state.Screen = ScreenWelcome
 	return state, nil
 }
@@ -242,7 +288,7 @@ func (n *Navigator) GetInitialState() (State, error) {
 
 	return State{
 		CurrentYear:    selectedYear,
-		CurrentDay:     1,
+		CurrentDay:     n.startDay(selectedYear),
 		Screen:         ScreenWelcome,
 		MaxDay:         n.MaxDay(selectedYear),
 		AvailableYears: years,

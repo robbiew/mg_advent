@@ -3,7 +3,9 @@
 ## Layout
 
 ```
-cmd/advent/              door entry point: flags, startup, main loop, logon mode
+cmd/advent/              main.go: flags, startup, logon mode, key reading
+                         door.go: the interactive loop (door type), help,
+                         credits, door-number entry, slideshow, scrollView
 internal/
   art/                   screen -> art path resolution; placeholder marker
   display/               ANSI rendering engine (CP437), scrolling, SGR tracking
@@ -55,12 +57,16 @@ to the BBS. A new public method must flush.
 **Art loading** (`loadAndProcess`, cached per path):
 `gd.TrimStringFromSauce` (anchored SAUCE + exact COMNT length + EOF), split on
 CRLF, drop trailing empty lines (25-row art with a final CRLF must not become
-26 rows), then on 80-column terminals `fit80Columns`: multi-line art is cut
-to 79 cells per line; single-line cursor-positioned art keeps the bottom-right
-cell empty.
+26 rows), then on 80-column terminals `fit80Columns`. Much art is drawn for
+the terminal's own wrap at column 80 (one line of 160 cells fills two rows),
+so lines are **never cut to fit**: a line reaching 80 cells loses only its
+last cell, and on a screen filled exactly the bottom row stops at column 79.
+Single-line art keeps the bottom-right cell empty. `TestBundledArtKeepsItsContent`
+guards this; cutting to 79 once wiped most of seven 2025 doors.
 
-**Scrolling** repaints rows in place (`drawRows(..., repaint=true)`), never
-clears the screen. Each repainted row first restores the SGR state the lines
+**Scrolling** repaints rows in place (`drawRows(..., repaint=true)`) when no
+line in the window wraps; a window with a wrapping line is redrawn from the
+top instead, since one line then spans two rows. Each repainted row first restores the SGR state the lines
 above it left in effect (`sgrState`), because art often sets a colour once
 for several lines.
 
