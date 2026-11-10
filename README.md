@@ -125,10 +125,18 @@ placeholders, then replace them as the pack is delivered:
 3. Preview with `./advent -local -debug-date=2026-12-03` (as callers see it
    on the 3rd) or `-debug-date=2026-12-25` (the whole season). The new year
    stays hidden from callers until 1 December, so it can ship early.
-4. Release. `scripts/build.sh` and `scripts/release.sh` refuse to run while
-   any placeholder is embedded (`ALLOW_PLACEHOLDERS=1` for a test build).
-   Update the release-package files in `internal/embedded/` (FILE_ID, INFOFILE,
-   MEMBERS, LICENSE) for the new pack.
+4. Release. Update the release-package files in `internal/embedded/`
+   (FILE_ID, INFOFILE, MEMBERS, LICENSE) for the new pack, then:
+
+   ```bash
+   VERSION=v2.1.0 ./scripts/build.sh && ./scripts/package.sh
+   ./scripts/release.sh v2.1.0 --notes-file notes.md --dry-run   # check first
+   ./scripts/release.sh v2.1.0 --notes-file notes.md
+   ```
+
+   `build.sh` and `release.sh` refuse to run while any placeholder is embedded.
+   For a test build, set `ALLOW_PLACEHOLDERS=1` and publish with `--prerelease`
+   (e.g. `v2.1.0-beta.1`), which leaves the "Latest" release alone.
 
 A year missing its own WELCOME/COMEBACK/GOODBYE uses `art/common`, and a
 missing day shows `MISSING.ANS`, so a partly delivered year still runs. The
@@ -145,7 +153,8 @@ Prerequisites: Go 1.26 or later, Git
 git clone https://github.com/robbiew/mg_advent.git
 cd mg_advent
 
-# Linux/Mac build (builds Linux amd64, arm64, and Windows 386)
+# Linux/Mac build (builds Linux amd64, arm64, and Windows 386), stamped with
+# the version from `git describe` or $VERSION
 ./scripts/build.sh
 
 # Windows build

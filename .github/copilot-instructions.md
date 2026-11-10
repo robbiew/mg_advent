@@ -42,7 +42,7 @@ art/
 
 ### Building & Testing
 ```bash
-# Multi-platform build with checksums
+# Multi-platform build with checksums (VERSION=vX.Y.Z to stamp a release)
 ./scripts/build.sh
 # Creates dist/advent-{os}-{arch}[.exe] with .sha256 files
 
