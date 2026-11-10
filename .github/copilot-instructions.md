@@ -23,15 +23,17 @@ application-specific socket implementation. Never write caller-facing text
 straight to os.Stdout in BBS mode; use gd.Output() or DisplayEngine.
 
 ### Display Engine (`internal/display/`)
-- **Encoding handling**: `DualModeWriter` sends raw CP437 to BBS, UTF-8 to console
-- **Performance**: Caching system for art files (`CacheSizeMB: 50`)
-- **Column handling**: Special logic for 80-column terminal issues (`Handle80ColumnIssue: true`)
+- **Encoding**: art stays CP437 bytes internally (one byte per cell, so column math is exact); local mode converts to UTF-8 only in the output writer. Never convert earlier.
+- **Output**: buffered; every public render method flushes once per frame. New methods must flush too.
+- **SAUCE**: stripped with `gd.TrimStringFromSauce`; trailing empty lines dropped so 25-row art with a final CRLF doesn't scroll
+- **Column handling**: on 80-column terminals lines are cut to 79 cells (`fit80Columns`) so nothing autowraps
+- **Blink/iCE**: `CSI ?33l` (CTerm DECRST 33, blink) sent at start unless `-noice`; nothing is restored at exit
 
 ### Art Management (`internal/art/`)
 ```
 art/
-├── common/              # Year-independent screens (WELCOME.ANS, GOODBYE.ANS, etc.)
-├── 2023/, 2024/, 2025/  # Year-specific daily art (1_DEC25.ANS format)
+├── common/              # Fallbacks (MISSING, NOTYET, GOODBYE, FOOTER)
+├── 2023/, 2024/, 2025/  # One season each; 2025+ name days 01_DEC25.ANS, earlier 1_DEC24.ANS
 ```
 
 **Naming Convention**: Daily files use `{day}_DEC{YY}.ANS` (e.g., `1_DEC25.ANS`, `25_DEC25.ANS`)
@@ -44,9 +46,8 @@ art/
 ./scripts/build.sh
 # Creates dist/advent-{os}-{arch}[.exe] with .sha256 files
 
-# Testing with coverage
-./scripts/test.sh
-# Generates coverage.out and coverage.html
+# Tests (CI also runs gofmt and go vet)
+go test -race ./...
 
 # Local testing (bypasses BBS dropfile requirement)
 go run ./cmd/advent -local -debug-date=2026-12-15
@@ -76,8 +77,8 @@ the current year opens one day at a time in December (paging past today shows
 month - off-season callers browse the archive.
 
 ### Configuration Approach
-1. **Hard-coded defaults**: 5min timeout, "art/" directory, 50MB cache
-2. **CLI flag overrides**: `--local`, `--socket-host`, `--path`, debug flags
+1. **Hard-coded defaults**: 5 min idle timeout, 120 min cap, embedded "art/" tree
+2. **CLI flag overrides**: `-local`, `-path`, `-log`, `-nodetect`, `-noice`, debug flags
 3. **No config file**: Eliminates complexity, uses sensible BBS door defaults
 
 ### Error Handling Patterns
@@ -110,6 +111,5 @@ month - off-season callers browse the archive.
 
 ## Current Development Focus (2025)
 - Multi-year navigation improvements
-- Enhanced theming system (`internal/display/theme.go`)
 - Performance optimizations for art caching
 - Better error recovery and user feedback

@@ -79,9 +79,13 @@ Art assets for DOS are in `dos/art/` (identical structure to modern art/).
 -debug-disable-date    Unlock every installed year and day
 -local                 Run locally with UTF-8 art conversion
 -nodetect              Use 80x25 without terminal probes
--noice                 Leave terminal ICE mode unchanged
+-noice                 Don't send the blink/iCE colour mode sequence
+-log file              Append a detailed log to this file
 -version               Show version information
 ```
+
+Without `-log`, only errors are written, to stderr. Some BBSes connect a
+door's stderr to the caller's terminal; use `-log` to keep logs off-screen.
 
 Sessions end after 5 minutes without a key, or when the caller's BBS time
 (from `door32.sys`, at most 2 hours) runs out.
@@ -120,7 +124,7 @@ answer the size probe badly.
 
 ### For Modern Systems (Windows 10+, Linux, Mac)
 
-Prerequisites: Go 1.21 or later, Git
+Prerequisites: Go 1.26 or later, Git
 
 ```bash
 # Clone repository
@@ -149,7 +153,7 @@ standard streams. No connection is made to a port inferred from a socket handle.
 `-nodetect` opens the connection without issuing terminal queries. Detection
 shares its buffered input with navigation so typed keys are retained.
 
-Go 1.21 or later is required. Current Windows builds require Windows 10 / Server
+Go 1.26 or later is required. Current Windows builds require Windows 10 / Server
 2016 or later. The former Go 1.20 / Windows 7 build path is retired; the DOS tree
 is unchanged. `WINDOWS7-FIX.md` is historical documentation for older releases.
 

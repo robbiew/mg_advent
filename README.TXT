@@ -20,7 +20,11 @@ Only "-path" is required:
       Skip terminal size detection and use 80x25
 
   -noice
-      Leave the terminal's ICE colour mode unchanged
+      Don't send the blink/iCE colour mode sequence
+
+  -log <file>
+      Append a detailed log to this file. Without it, only errors are
+      written, to stderr (which some BBSes show to the caller).
 
   -debug-date <YYYY-MM-DD>
       Pretend today is this date, for previewing a season

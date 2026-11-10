@@ -49,3 +49,5 @@ coverage.html
 ~/advent/
 /test/
 /testing/
+# Locally built tools
+/tools/packans/packans
