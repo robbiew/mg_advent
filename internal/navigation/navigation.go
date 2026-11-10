@@ -200,6 +200,22 @@ func (n *Navigator) SelectYear(year int, state State) (State, error) {
 	return state, nil
 }
 
+// StepYear moves to the next (delta > 0) or previous (delta < 0) available
+// year's welcome screen, stopping at either end. Unlike the number keys it
+// works however many years there are.
+func (n *Navigator) StepYear(delta int, state State) State {
+	i := slices.Index(state.AvailableYears, state.CurrentYear)
+	j := max(0, min(i+delta, len(state.AvailableYears)-1))
+	if i < 0 || j == i {
+		return state
+	}
+	next, err := n.SelectYear(state.AvailableYears[j], state)
+	if err != nil {
+		return state
+	}
+	return next
+}
+
 // SelectYearByIndex selects a year by its index (1-based) from available years
 // Years are sorted ascending (oldest first), so index 1 = oldest year, index 2 = next, etc.
 func (n *Navigator) SelectYearByIndex(index int, currentState State) (State, error) {

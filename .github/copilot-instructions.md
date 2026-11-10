@@ -99,9 +99,9 @@ month - off-season callers browse the archive.
 - **Socket Inheritance**: Windows-specific handle inheritance from parent BBS process
 
 ### Memory Bank Documentation
-- `memory-bank/`: Contains architectural decisions and modernization roadmap
-- Reference for understanding evolution from monolithic to modular design
-- Documents the "why" behind current structure decisions
+- `memory-bank/architecture.md`: package map and the invariants the code relies on (read before changing display or calendar code)
+- `memory-bank/season-runbook.md`: adding a year (placeholders, art drop-in, preview, release)
+- `memory-bank/progress.md`: history and open items. Keep these files true when you change behaviour.
 
 ## Common Pitfalls
 - **Never** write to `os.Stdout` in BBS mode - always use GoDoors or the display engine
@@ -109,7 +109,7 @@ month - off-season callers browse the archive.
 - **Cross-platform differences**: Windows uses socket inheritance, Linux uses STDIO
 - **Column handling**: 80-column terminals need special care for proper display
 
-## Current Development Focus (2025)
-- Multi-year navigation improvements
-- Performance optimizations for art caching
-- Better error recovery and user feedback
+## Current Development Focus (2026)
+- Replace the 2026 placeholder art (`internal/embedded/art/2026/`) with the real pack before 1 December
+- Confirm issue #2 (Windows telnet carrier) on a live Windows board
+- New years: generate placeholders with `go run ./tools/mkplaceholders -year YYYY`; never commit a release build with `ADVENT-PLACEHOLDER` art

@@ -227,3 +227,17 @@ func TestDoorWithNoTimeLeftReturnsToBBS(t *testing.T) {
 		t.Fatal("door started the session (drew art) for a caller with no time left")
 	}
 }
+
+// A new season's art ships before December: it must stay hidden until Dec 1
+// and open as the live season on the day.
+func TestNewSeasonOpensOnDecemberFirst(t *testing.T) {
+	welcome2026 := artLine(t, "art/2026/WELCOME.ANS")
+	before := runDoorProcess(t, "q", "-local", "-nodetect", "-debug-date=2026-11-10")
+	if bytes.Contains(before, welcome2026) {
+		t.Fatal("2026 art was visible in November")
+	}
+	during := runDoorProcess(t, "q", "-local", "-nodetect", "-debug-date=2026-12-03")
+	if !bytes.Contains(during, welcome2026) {
+		t.Fatal("2026 did not open as the live season on Dec 3")
+	}
+}

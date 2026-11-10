@@ -464,6 +464,12 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 			case char == 'm' || char == 'M':
 				currentState.Screen = navigation.ScreenMembers
 				continue
+			case char == '[' || key == input.KeyPageUp:
+				currentState = navigator.StepYear(-1, currentState)
+				continue
+			case char == ']' || key == input.KeyPageDown:
+				currentState = navigator.StepYear(1, currentState)
+				continue
 			}
 		}
 

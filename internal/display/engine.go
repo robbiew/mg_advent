@@ -132,17 +132,26 @@ func (de *DisplayEngine) renderLabel(text string) {
 // drawRows draws rows lines starting at lines[start] from the top of the
 // screen. A fresh draw (screen just cleared) lets the lines flow with CRLF. A
 // repaint positions and erases each row first, so scrolling updates in place
-// without blanking the screen.
+// without blanking the screen. Each row that doesn't follow on from the line
+// above it starts with the colours the art above has left in effect.
 func (de *DisplayEngine) drawRows(lines []string, start, rows int, repaint bool) {
 	start = max(0, min(start, len(lines)))
 	end := min(start+rows, len(lines))
+	var colours sgrState
+	for _, line := range lines[:start] {
+		colours.apply(line)
+	}
 	for i, line := range lines[start:end] {
-		if repaint {
-			fmt.Fprintf(de.out, Esc+"%d;1H"+Reset+EraseLine, i+1)
-		} else if i > 0 {
+		switch {
+		case repaint:
+			fmt.Fprintf(de.out, Esc+"%d;1H"+Reset+EraseLine+"%s", i+1, colours.sequence())
+		case i > 0:
 			de.out.WriteString("\r\n")
+		default:
+			de.out.WriteString(colours.sequence())
 		}
 		de.out.WriteString(line)
+		colours.apply(line)
 	}
 	if repaint {
 		for i := end - start; i < rows; i++ {

@@ -36,6 +36,15 @@ Only "-path" is required:
       Show version and author information
 
 
+KEYS
+----
+  Welcome   Right arrow / Enter: open the calendar
+            1-9: pick a year (1 = oldest)   [ ] or PgUp/PgDn: prev/next year
+            I: info file   M: member list   Q / Esc: quit
+  Day       Left / Right: previous / next door   Up / Down: scroll tall art
+            Q / Esc: back to the welcome screen
+
+
 HOW THE CALENDAR OPENS
 ----------------------
 Past years can be browsed in full at any time of year. The current year

@@ -11,6 +11,9 @@ set -e
 
 echo "Building Mistigris Advent Calendar..."
 
+# Refuse to build release binaries that embed placeholder art
+"$(dirname "$0")/check-placeholders.sh"
+
 # Default values
 OUTPUT_DIR="dist"
 PLATFORMS=("linux/amd64" "linux/arm64" "windows/386")
