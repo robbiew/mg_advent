@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,8 +45,15 @@ func runDoorProcess(t *testing.T, stdin string, args ...string) []byte {
 
 func dropFile(t *testing.T) string {
 	t.Helper()
+	return dropFileWithTime(t, 42)
+}
+
+// dropFileWithTime writes a door32.sys giving the caller minutesLeft minutes.
+func dropFileWithTime(t *testing.T, minutesLeft int) string {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "DOOR32.SYS")
-	if err := os.WriteFile(path, []byte("0\r\n0\r\n57600\r\nTest BBS\r\n1\r\nReal Name\r\nCaller\r\n255\r\n42\r\n1\r\n3\r\n"), 0600); err != nil {
+	body := fmt.Sprintf("0\r\n0\r\n57600\r\nTest BBS\r\n1\r\nReal Name\r\nCaller\r\n255\r\n%d\r\n1\r\n3\r\n", minutesLeft)
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -197,7 +205,21 @@ func TestSessionLimitUsesBBSTimeLeft(t *testing.T) {
 	if got := sessionLimit(display.User{TimeLeft: 600 * time.Minute}); got != maxSessionTime {
 		t.Fatalf("limit = %v, want cap %v", got, maxSessionTime)
 	}
-	if got := sessionLimit(display.User{}); got != maxSessionTime {
-		t.Fatalf("unknown time left: %v", got)
+	// An explicit zero from door32.sys means the caller is out of time.
+	if got := sessionLimit(getUserInfo(false, &gd.DropFile{TimeLeft: 0})); got != 0 {
+		t.Fatalf("zero minutes left: limit = %v, want 0", got)
+	}
+	if got := sessionLimit(display.User{TimeLeft: -5 * time.Minute}); got != 0 {
+		t.Fatalf("negative time left: limit = %v, want 0", got)
+	}
+}
+
+func TestDoorWithNoTimeLeftReturnsToBBS(t *testing.T) {
+	out := runDoorProcess(t, "", "-path", dropFileWithTime(t, 0), "-nodetect", "-debug-disable-date")
+	if !bytes.Contains(out, []byte("Your time is up")) {
+		t.Fatal("caller with no time left was not told their time is up")
+	}
+	if bytes.Contains(out, []byte(display.HideCursor)) {
+		t.Fatal("door started the session (drew art) for a caller with no time left")
 	}
 }

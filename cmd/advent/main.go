@@ -124,6 +124,12 @@ func run() int {
 	}
 
 	sess := session.NewManager(idleTimeout, sessionLimit(user))
+	if wait, reason := sess.Next(); wait <= 0 {
+		// The caller has no BBS time left: send them back before showing art.
+		logrus.WithField("reason", reason).Info("No session time remaining")
+		showSessionOver(displayEngine, reason)
+		return 0
+	}
 
 	if *logonMode {
 		runLogonMode(displayEngine, artManager, navigator, inputHandler, sess, user)
@@ -195,12 +201,11 @@ func newDisplayEngine(width, height int) *display.DisplayEngine {
 	}, embedded.ArtFS)
 }
 
-// sessionLimit caps the session at the caller's remaining BBS time.
+// sessionLimit caps the session at the caller's remaining BBS time. TimeLeft
+// is always known (door32.sys, or the local/fallback defaults), so zero or less
+// means the caller has no time left, not that the time is unknown.
 func sessionLimit(user display.User) time.Duration {
-	if user.TimeLeft > 0 && user.TimeLeft < maxSessionTime {
-		return user.TimeLeft
-	}
-	return maxSessionTime
+	return min(max(user.TimeLeft, 0), maxSessionTime)
 }
 
 func getUserInfo(localMode bool, info *gd.DropFile) display.User {
