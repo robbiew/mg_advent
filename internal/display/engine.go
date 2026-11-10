@@ -42,7 +42,7 @@ const (
 type DisplayEngine struct {
 	config  DisplayConfig
 	fs      fs.FS
-	cache   map[string][]string
+	cache   map[string]artFile
 	out     *bufio.Writer
 	scroll  ScrollState
 	content []string // art taller than the screen, scrolled by ScrollUp/Down
@@ -53,7 +53,7 @@ func NewDisplayEngine(config DisplayConfig, artFS fs.FS) *DisplayEngine {
 	de := &DisplayEngine{
 		config: config,
 		fs:     artFS,
-		cache:  make(map[string][]string),
+		cache:  make(map[string]artFile),
 		scroll: ScrollState{VisibleLines: config.Height},
 	}
 	de.SetOutput(gd.Output())
@@ -86,6 +86,14 @@ func (u utf8Writer) Write(p []byte) (int, error) {
 
 func (de *DisplayEngine) flush() { _ = de.out.Flush() }
 
+// artFile is a loaded art file.
+type artFile struct {
+	// rows has one string per screen row. For cursor-positioned art it holds
+	// the file's lines instead, drawn as a stream.
+	rows       []string
+	positioned bool
+}
+
 // Display clears the screen and shows an art file. A missing file shows
 // MISSING.ANS labelled with the name that was not found.
 func (de *DisplayEngine) Display(filePath string) error {
@@ -93,29 +101,34 @@ func (de *DisplayEngine) Display(filePath string) error {
 	de.out.WriteString(Reset)
 	de.clear()
 
-	content, err := de.loadAndProcess(filePath)
+	a, err := de.load(filePath)
 	label := ""
 	if err != nil {
 		var fallbackErr error
-		if content, fallbackErr = de.loadAndProcess(missingPath); fallbackErr != nil {
+		if a, fallbackErr = de.load(missingPath); fallbackErr != nil {
 			de.out.WriteString("Error: Unable to load art. Please contact the Sysop.\r\n")
 			return err
 		}
 		label = strings.TrimPrefix(filePath, "art/")
 	}
-	if len(content) == 0 {
+	if len(a.rows) == 0 {
 		de.out.WriteString("Error: The art file is empty or invalid.\r\n")
 		return fmt.Errorf("empty art file: %s", filePath)
 	}
 
-	rows := min(len(content), de.config.Height)
-	de.scroll = ScrollState{TotalLines: len(content), VisibleLines: de.config.Height}
 	de.content = nil
-	if len(content) > de.config.Height {
-		de.content = content
+	if a.positioned {
+		// Art that positions the cursor draws itself; it can't scroll by rows.
+		de.scroll = ScrollState{TotalLines: de.config.Height, VisibleLines: de.config.Height}
+		de.out.WriteString(strings.Join(a.rows, "\r\n"))
+	} else {
+		de.scroll = ScrollState{TotalLines: len(a.rows), VisibleLines: de.config.Height}
+		if len(a.rows) > de.config.Height {
+			de.content = a.rows
+		}
+		de.drawRows(a.rows, 0, de.config.Height, false)
 	}
 	de.updateScrollState()
-	de.drawRows(content, 0, rows, false)
 
 	if label != "" {
 		de.renderLabel(label)
@@ -129,58 +142,62 @@ func (de *DisplayEngine) renderLabel(text string) {
 	fmt.Fprintf(de.out, "\x1b7"+Esc+"%d;%dH"+Esc+"97;40m%s"+Reset+"\x1b8", de.config.Height, col, text)
 }
 
-// drawRows draws rows lines starting at lines[start] from the top of the
-// screen. A fresh draw (screen just cleared) lets the lines flow with CRLF. A
-// repaint positions and erases each row first, so scrolling updates in place
-// without blanking the screen. Each row that doesn't follow on from the line
-// above it starts with the colours the art above has left in effect.
-func (de *DisplayEngine) drawRows(lines []string, start, rows int, repaint bool) {
-	start = max(0, min(start, len(lines)))
-	end := min(start+rows, len(lines))
+// drawRows draws up to count screen rows starting at rows[start], each moved
+// to its own row from the top, so a full 80-cell row never depends on how
+// the terminal wraps. A repaint erases each row first, for scrolling in
+// place; a fresh draw follows a clear. Rows start with the colours the rows
+// above left in effect. A row reaching the bottom-right cell stops one cell
+// short, so the screen can't scroll.
+func (de *DisplayEngine) drawRows(rows []string, start, count int, repaint bool) {
+	start = max(0, min(start, len(rows)))
+	end := min(start+count, len(rows))
 	var colours sgrState
-	for _, line := range lines[:start] {
-		colours.apply(line)
+	for _, row := range rows[:start] {
+		colours.apply(row)
 	}
-	for i, line := range lines[start:end] {
-		switch {
-		case repaint:
-			fmt.Fprintf(de.out, Esc+"%d;1H"+Reset+EraseLine+"%s", i+1, colours.sequence())
-		case i > 0:
-			de.out.WriteString("\r\n")
-		default:
+	for i, row := range rows[start:end] {
+		fmt.Fprintf(de.out, Esc+"%d;1H", i+1)
+		if repaint {
+			de.out.WriteString(Reset + EraseLine + colours.sequence())
+		} else if i == 0 {
 			de.out.WriteString(colours.sequence())
 		}
-		de.out.WriteString(line)
-		colours.apply(line)
+		if i+1 == de.config.Height && cellsIn(row) >= de.config.Width {
+			row = truncateCells(row, de.config.Width-1)
+		}
+		de.out.WriteString(row)
+		colours.apply(row)
 	}
 	if repaint {
-		for i := end - start; i < rows; i++ {
+		for i := end - start; i < count; i++ {
 			fmt.Fprintf(de.out, Esc+"%d;1H"+Reset+EraseLine, i+1)
 		}
 	}
 }
 
-// LoadAnsiLines loads an art file as display-ready lines.
+// LoadAnsiLines returns an art file's screen rows.
 func (de *DisplayEngine) LoadAnsiLines(filePath string) ([]string, error) {
-	return de.loadAndProcess(filePath)
+	a, err := de.load(filePath)
+	return a.rows, err
 }
 
-// loadAndProcess reads an art file, strips SAUCE metadata and trailing blank
-// lines, and applies the 80-column fixes. Results are cached.
-func (de *DisplayEngine) loadAndProcess(filePath string) ([]string, error) {
+// load reads an art file, strips SAUCE metadata and trailing blank lines,
+// and splits it into the screen rows it fills. Results are cached.
+func (de *DisplayEngine) load(filePath string) (artFile, error) {
 	if cached, ok := de.cache[filePath]; ok {
 		return cached, nil
 	}
 	raw, err := fs.ReadFile(de.fs, filePath)
 	if err != nil {
-		return nil, err
+		return artFile{}, err
 	}
 	lines := splitArt(string(raw))
-	if de.config.Width == 80 {
-		lines = fit80Columns(lines, de.config.Height)
+	a := artFile{rows: toRows(lines, artWidth)}
+	if hasPositioning(lines) {
+		a = artFile{rows: legacyFit(lines, de.config.Width, de.config.Height), positioned: true}
 	}
-	de.cache[filePath] = lines
-	return lines, nil
+	de.cache[filePath] = a
+	return a, nil
 }
 
 // splitArt strips SAUCE metadata and splits art into lines, dropping the
@@ -191,105 +208,6 @@ func splitArt(s string) []string {
 		lines = lines[:len(lines)-1]
 	}
 	return lines
-}
-
-// fit80Columns keeps art from pushing the screen around on an 80-column
-// terminal. Much art is drawn for the terminal's own wrap at column 80: one
-// line of 160 characters fills two rows. So lines are never cut to fit.
-// Instead, as the door always has, a line reaching 80 characters loses its
-// last character (an 80-character line followed by CRLF would otherwise skip
-// a row on terminals without a last-column flag), and on a screen filled
-// exactly, the bottom row stops at column 79 so the screen can't scroll.
-func fit80Columns(lines []string, height int) []string {
-	out := make([]string, len(lines))
-	if len(lines) == 1 {
-		// Cursor-positioned art: one stream with no line breaks.
-		line := lines[0]
-		if n := countVisibleChars(line); n >= 80 {
-			line = truncateVisible(line, n-1)
-		}
-		line = fix80ColumnCursorPositioning(line, height)
-		if height == 25 {
-			line = truncateVisible(line, 80*25-1)
-		}
-		out[0] = line
-		return out
-	}
-	for i, line := range lines {
-		if n := countVisibleChars(line); n >= 80 {
-			line = truncateVisible(line, n-1)
-		}
-		if len(lines) == height && i == height-1 {
-			line = truncateVisible(line, 79)
-		}
-		out[i] = line
-	}
-	return out
-}
-
-// wraps reports whether any of lines fills more than one screen row.
-func wraps(lines []string) bool {
-	for _, l := range lines {
-		if countVisibleChars(l) >= 80 {
-			return true
-		}
-	}
-	return false
-}
-
-// escapeLen returns the length of the escape sequence starting at s[i]
-// (s[i] == ESC): a CSI sequence through its final byte, or ESC plus one byte.
-func escapeLen(s string, i int) int {
-	j := i + 1
-	if j < len(s) && s[j] == '[' {
-		for j++; j < len(s); j++ {
-			if s[j] >= 0x40 && s[j] <= 0x7E {
-				return j + 1 - i
-			}
-		}
-		return len(s) - i
-	}
-	return min(j+1, len(s)) - i
-}
-
-// countVisibleChars counts the characters in s that occupy a cell, skipping
-// escape sequences. Art is CP437, so each byte is one cell.
-func countVisibleChars(s string) int {
-	count := 0
-	for i := 0; i < len(s); {
-		if s[i] == '\x1b' {
-			i += escapeLen(s, i)
-			continue
-		}
-		count++
-		i++
-	}
-	return count
-}
-
-// truncateVisible drops visible characters after the first limit, keeping
-// every escape sequence so colours and modes still take effect.
-func truncateVisible(s string, limit int) string {
-	if countVisibleChars(s) <= limit {
-		return s
-	}
-	var b strings.Builder
-	b.Grow(len(s))
-	visible := 0
-	for i := 0; i < len(s); {
-		if s[i] == '\x1b' {
-			n := escapeLen(s, i)
-			b.WriteString(s[i : i+n])
-			i += n
-			continue
-		}
-		if visible < limit {
-			b.WriteByte(s[i])
-		}
-		visible++
-		i++
-	}
-	return b.String()
 }
 
 // fix80ColumnCursorPositioning moves any cursor positioning to row height,
@@ -326,11 +244,11 @@ func fix80ColumnCursorPositioning(content string, height int) string {
 
 // footer returns the menu bar shown under scrollable screens (at most two rows).
 func (de *DisplayEngine) footer() []string {
-	lines, err := de.loadAndProcess(footerPath)
-	if err != nil || len(lines) == 0 {
+	a, err := de.load(footerPath)
+	if err != nil || len(a.rows) == 0 {
 		return nil
 	}
-	return lines[:min(len(lines), maxFooterRows)]
+	return a.rows[:min(len(a.rows), maxFooterRows)]
 }
 
 // contentRows is the number of rows above the footer.
@@ -369,13 +287,9 @@ func (de *DisplayEngine) RenderScrollableContentOnly(lines []string, scrollPos i
 	if len(lines) == 0 {
 		return nil
 	}
-	rows := de.contentRows()
-	pos := clampScroll(scrollPos, len(lines), rows)
-	if wraps(lines[pos:min(pos+rows, len(lines))]) {
-		return de.RenderScrollable(lines, pos) // see scrollBy
-	}
 	defer de.flush()
-	de.drawRows(lines, pos, rows, true)
+	rows := de.contentRows()
+	de.drawRows(lines, clampScroll(scrollPos, len(lines), rows), rows, true)
 	return nil
 }
 
@@ -396,14 +310,6 @@ func (de *DisplayEngine) scrollBy(delta int) error {
 	de.scroll.CurrentLine = pos
 	de.updateScrollState()
 	defer de.flush()
-	window := de.content[pos:min(pos+de.config.Height, len(de.content))]
-	if wraps(window) {
-		// Rows can't be repainted one per line when a line wraps onto the
-		// next row; redraw the window from the top instead.
-		de.clear()
-		de.drawRows(de.content, pos, de.config.Height, false)
-		return nil
-	}
 	de.drawRows(de.content, pos, de.config.Height, true)
 	return nil
 }

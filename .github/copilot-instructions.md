@@ -26,7 +26,7 @@ straight to os.Stdout in BBS mode; use gd.Output() or DisplayEngine.
 - **Encoding**: art stays CP437 bytes internally (one byte per cell, so column math is exact); local mode converts to UTF-8 only in the output writer. Never convert earlier.
 - **Output**: buffered; every public render method flushes once per frame. New methods must flush too.
 - **SAUCE**: stripped with `gd.TrimStringFromSauce`; trailing empty lines dropped so 25-row art with a final CRLF doesn't scroll
-- **Column handling**: art may rely on autowrap at column 80, so never cut lines to fit: `fit80Columns` drops only the last cell of a line reaching 80, plus the bottom row of a full screen
+- **Rows, not lines**: art often relies on autowrap at column 80, so `toRows` splits lines into physical screen rows and everything (sizing, scrolling, drawing) works in rows. Rows are drawn at explicit positions; only the bottom-right cell is left empty. Never cut lines to fit
 - **Blink/iCE**: `CSI ?33l` (CTerm DECRST 33, blink) sent at start unless `-noice`; nothing is restored at exit
 
 ### Art Management (`internal/art/`)

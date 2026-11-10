@@ -57,16 +57,23 @@ to the BBS. A new public method must flush.
 **Art loading** (`loadAndProcess`, cached per path):
 `gd.TrimStringFromSauce` (anchored SAUCE + exact COMNT length + EOF), split on
 CRLF, drop trailing empty lines (25-row art with a final CRLF must not become
-26 rows), then on 80-column terminals `fit80Columns`. Much art is drawn for
-the terminal's own wrap at column 80 (one line of 160 cells fills two rows),
-so lines are **never cut to fit**: a line reaching 80 cells loses only its
-last cell, and on a screen filled exactly the bottom row stops at column 79.
-Single-line art keeps the bottom-right cell empty. `TestBundledArtKeepsItsContent`
-guards this; cutting to 79 once wiped most of seven 2025 doors.
+26 rows), then `toRows` splits the lines into the **screen rows** they fill at
+80 columns. Much art is drawn for the terminal's own wrap (one line of 160
+cells fills two rows; five bundled files are a single 2,000-cell stream), so
+everything downstream (fit, scroll state, drawing) works in rows, never in
+file lines. `ESC[nC` counts as n cells and is split across rows. Lines are
+never cut: `TestBundledArtKeepsItsContent` checks no cell is lost (cutting to
+79 once wiped most of seven 2025 doors).
 
-**Scrolling** repaints rows in place (`drawRows(..., repaint=true)`) when no
-line in the window wraps; a window with a wrapping line is redrawn from the
-top instead, since one line then spans two rows. Each repainted row first restores the SGR state the lines
+**Drawing** positions every row explicitly (`ESC[r;1H`), so a full 80-cell
+row never depends on the terminal's wrap or last-column flag; only a row in
+the bottom-right corner stops at column 79, so the screen can't scroll. Art
+that positions the cursor itself (`hasPositioning`; none bundled today) is
+drawn as a stream with the door's original fixes (`legacyFit`) and doesn't
+scroll.
+
+**Scrolling** repaints rows in place (`drawRows(..., repaint=true)`); art
+taller than the terminal in rows (e.g. 25-row art on 80x24) scrolls. Each repainted row first restores the SGR state the lines
 above it left in effect (`sgrState`), because art often sets a colour once
 for several lines.
 

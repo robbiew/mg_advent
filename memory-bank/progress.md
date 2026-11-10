@@ -37,8 +37,9 @@ Home/End and PgUp/PgDn on doors; type a door number to jump; `?` help;
 `A` SAUCE credits; `S` slideshow (`-slide`); off-season countdown; main loop
 moved into a `door` type (cmd/advent/door.go). Also fixes a regression from
 PR #6: lines were cut to 79 cells, destroying art drawn for autowrap
-(2025 doors 1, 7, 9, 12, 14, 17, 25); the old one-cell rule is
-back, and in-place scrolling falls back to a redraw for wrapping lines.
+(2025 doors 1, 7, 9, 12, 14, 17, 25). Art is now split into the screen rows
+it fills and drawn row by row, so nothing is cut, column 80 shows, and
+25-row art scrolls on 80x24 instead of overflowing (Codex review on #8).
 
 ## Open items
 

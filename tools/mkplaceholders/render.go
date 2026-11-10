@@ -38,7 +38,6 @@ var (
 	white   = sgr("0;1;37")
 	cyan    = sgr("0;36")
 	grey    = sgr("0;1;30")
-	menuKey = sgr("0;1;37;41") // white on red
 )
 
 // line is one row of a framed screen: plain CP437 text (no escapes, so its
