@@ -103,7 +103,6 @@ func framedScreen(s screen, year int, earlier []int) []string {
 		content = append(content,
 			line{},
 			line{fmt.Sprintf("December %d, %d  -  door %d of 25", s.day, year, s.day), white},
-			line{laquo + " previous door        Q back        next door " + raquo, cyan},
 		)
 	case s.file == "WELCOME.ANS" || s.file == "COMEBACK.ANS":
 		if s.file == "COMEBACK.ANS" {
