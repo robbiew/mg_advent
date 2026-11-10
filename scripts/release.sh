@@ -106,27 +106,46 @@ else
     echo "Note: can't run the Linux x86-64 binary here to check its version."
 fi
 
-# An existing tag is reused only if it already marks this commit.
-CREATE_TAG=1
-if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1 ||
-    git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
-    git fetch -q origin "refs/tags/$VERSION:refs/tags/$VERSION" 2>/dev/null || true
-    tagged="$(git rev-parse -q --verify "refs/tags/$VERSION^{commit}" || true)"
-    if [ "$tagged" = "$COMMIT" ]; then
-        CREATE_TAG=0
-        echo "Tag $VERSION already marks ${COMMIT:0:7}; reusing it."
+# Tags and releases. Destructive steps are only planned here and carried out
+# after the final confirmation, so cancelling there changes nothing.
+DELETE_LOCAL_TAG=0 DELETE_REMOTE_TAG=0 DELETE_RELEASE=0 CREATE_TAG=1 PUSH_TAG=1
+
+# The commit a tag on GitHub marks (peeled, so annotated tags give their commit).
+remote_tag_commit() {
+    local refs
+    refs="$(git ls-remote --tags origin "refs/tags/$VERSION" "refs/tags/$VERSION^{}")"
+    awk -v peeled="refs/tags/$VERSION^{}" '$2 == peeled { print $1; found = 1 } END { if (!found) exit 1 }' <<<"$refs" ||
+        awk '{ print $1 }' <<<"$refs"
+}
+REMOTE_TAG="$(remote_tag_commit)"
+LOCAL_TAG="$(git rev-parse -q --verify "refs/tags/$VERSION^{commit}" || true)"
+
+if [ -n "$REMOTE_TAG" ]; then
+    if [ "$REMOTE_TAG" = "$COMMIT" ]; then
+        echo "Tag $VERSION on GitHub already marks ${COMMIT:0:7}; reusing it."
+        CREATE_TAG=0 PUSH_TAG=0
+        [ -z "$LOCAL_TAG" ] || [ "$LOCAL_TAG" = "$COMMIT" ] || DELETE_LOCAL_TAG=1
     else
-        [ "$YES" = 0 ] || fail "tag $VERSION already exists at ${tagged:0:7}, not ${COMMIT:0:7}"
-        confirm "Tag $VERSION exists at ${tagged:0:7}. Delete it and tag ${COMMIT:0:7} instead?" || exit 1
-        run git tag -d "$VERSION"
-        run git push origin ":refs/tags/$VERSION"
+        [ "$YES" = 0 ] || fail "tag $VERSION on GitHub marks ${REMOTE_TAG:0:7}, not ${COMMIT:0:7}"
+        confirm "Tag $VERSION on GitHub marks ${REMOTE_TAG:0:7}. Replace it with ${COMMIT:0:7}?" || exit 1
+        DELETE_REMOTE_TAG=1
+        [ -z "$LOCAL_TAG" ] || DELETE_LOCAL_TAG=1
+    fi
+elif [ -n "$LOCAL_TAG" ]; then
+    if [ "$LOCAL_TAG" = "$COMMIT" ]; then
+        echo "Local tag $VERSION marks ${COMMIT:0:7}; it will be pushed."
+        CREATE_TAG=0
+    else
+        [ "$YES" = 0 ] || fail "local tag $VERSION marks ${LOCAL_TAG:0:7}, not ${COMMIT:0:7}"
+        confirm "Local tag $VERSION marks ${LOCAL_TAG:0:7}. Replace it with ${COMMIT:0:7}?" || exit 1
+        DELETE_LOCAL_TAG=1
     fi
 fi
 
 if gh release view "$VERSION" --repo "$REPO" >/dev/null 2>&1; then
     [ "$YES" = 0 ] || fail "release $VERSION already exists"
-    confirm "Release $VERSION already exists. Delete and recreate it?" || exit 1
-    run gh release delete "$VERSION" --repo "$REPO" --yes
+    confirm "Release $VERSION already exists. Replace it?" || exit 1
+    DELETE_RELEASE=1
 fi
 
 # --- Publish ---------------------------------------------------------------
@@ -140,13 +159,16 @@ echo "Title:      $TITLE"
 echo "Notes:      ${NOTES_FILE:-$NOTES}"
 echo "Files:"
 for a in "${ASSETS[@]}"; do echo "  - $(basename "$a")"; done
+[ "$DELETE_RELEASE" = 0 ] || echo "Replaces:   the existing release $VERSION (deleted first)"
+[ "$DELETE_REMOTE_TAG" = 0 ] || echo "Replaces:   tag $VERSION on GitHub at ${REMOTE_TAG:0:7}"
 echo "================================================"
-[ "$DRY_RUN" = 1 ] || confirm "Create this $kind?" || { echo "Cancelled."; exit 0; }
+[ "$DRY_RUN" = 1 ] || confirm "Create this $kind?" || { echo "Cancelled; nothing was changed."; exit 0; }
 
-if [ "$CREATE_TAG" = 1 ]; then
-    run git tag -a "$VERSION" -m "$TITLE" "$COMMIT"
-    run git push origin "refs/tags/$VERSION"
-fi
+[ "$DELETE_RELEASE" = 0 ] || run gh release delete "$VERSION" --repo "$REPO" --yes
+[ "$DELETE_REMOTE_TAG" = 0 ] || run git push origin ":refs/tags/$VERSION"
+[ "$DELETE_LOCAL_TAG" = 0 ] || run git tag -d "$VERSION"
+[ "$CREATE_TAG" = 0 ] || run git tag -a "$VERSION" -m "$TITLE" "$COMMIT"
+[ "$PUSH_TAG" = 0 ] || run git push origin "refs/tags/$VERSION"
 
 args=(release create "$VERSION" --repo "$REPO" --title "$TITLE" --verify-tag)
 [ "$PRERELEASE" = 0 ] || args+=(--prerelease)
