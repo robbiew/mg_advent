@@ -8,6 +8,7 @@
 # Output: Creates .zip and .tar.gz archives in dist/releases/
 
 set -e
+cd "$(dirname "$0")/.."
 
 echo "Packaging Mistigris Advent Calendar for release..."
 
@@ -122,14 +123,13 @@ for platform_config in "${PLATFORMS[@]}"; do
     create_package "$platform_name" "$binary_name" "$archive_format"
 done
 
-echo ""
-echo "Packaging complete! Release archives available in ${RELEASE_DIR}/"
-ls -lh "${RELEASE_DIR}/"*.{zip,tar.gz} 2>/dev/null || echo "No archives created"
+# Checksums for the archives, uploaded with them by release.sh
+(cd "$RELEASE_DIR" && sha256sum ./*.zip ./*.tar.gz 2>/dev/null | sed 's|  \./|  |' > checksums.sha256)
 
 echo ""
-echo "To create a GitHub release:"
-echo "  1. Use the release script: ./scripts/release.sh v2.0.0 'Release notes'"
-echo "  2. Or manually:"
-echo "     - Create a new tag: git tag -a v2.0.0 -m 'Release v2.0.0'"
-echo "     - Push the tag: git push origin v2.0.0"
-echo "     - Upload files from ${RELEASE_DIR}/ to the GitHub release page"
+echo "Packaging complete! Release archives available in ${RELEASE_DIR}/"
+ls -lh "${RELEASE_DIR}/"*.{zip,tar.gz} "${RELEASE_DIR}/checksums.sha256" 2>/dev/null || echo "No archives created"
+
+echo ""
+echo "To publish:  ./scripts/release.sh v2.0.0 --notes-file notes.md"
+echo "Pre-release: ./scripts/release.sh v2.0.0-beta.2 --prerelease --notes-file notes.md"

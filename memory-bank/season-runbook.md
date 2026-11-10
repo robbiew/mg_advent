@@ -77,6 +77,21 @@ next to them.
 1. `grep -rla ADVENT-PLACEHOLDER internal/embedded/art` prints nothing.
 2. Update the release-package files in `internal/embedded/` (FILE_ID.ANS,
    FILE_ID.DIZ, INFOFILE.ANS, MEMBERS.ANS, LICENSE.TXT) for the new pack.
-3. `./scripts/build.sh`, `./scripts/package.sh`, `./scripts/release.sh vX.Y.Z`.
-   build/release stop if placeholders remain (`ALLOW_PLACEHOLDERS=1` only for
-   test builds).
+3. Build, package and publish:
+
+   ```bash
+   VERSION=vX.Y.Z ./scripts/build.sh && ./scripts/package.sh
+   ./scripts/release.sh vX.Y.Z --notes-file notes.md --dry-run
+   ./scripts/release.sh vX.Y.Z --notes-file notes.md
+   ```
+
+   `build.sh` stamps `VERSION` (default: `git describe`) and the date into
+   every binary; `package.sh` writes `checksums.sha256`. `release.sh` checks
+   the tree is clean and pushed, the binaries carry the version, and no
+   placeholders remain, then tags the commit and uploads the archives and
+   checksums. `--yes` skips the prompts but never replaces an existing tag or
+   release; `--dry-run` changes nothing.
+
+   **Test builds** with placeholder art: `ALLOW_PLACEHOLDERS=1` for both
+   scripts, a `-beta.N` version and `--prerelease` (v2.0.0-beta.1 was made this
+   way). A suffixed version without `--prerelease` is refused under `--yes`.
