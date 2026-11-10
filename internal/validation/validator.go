@@ -24,90 +24,53 @@ func NewValidator(embeddedFS fs.FS, baseArtDir string) *Validator {
 	}
 }
 
-// ValidateDate checks if the current date is valid for advent calendar
-func (v *Validator) ValidateDate() error {
-	now := time.Now()
-	if now.Month() != time.December || now.Day() < 1 {
-		return fmt.Errorf("advent calendar only available in December")
-	}
-	return nil
-}
-
-// ValidateArtFiles checks if required art files exist for a year
+// ValidateArtFiles checks the art needed to open year. Only the common
+// fallback screens are required; a year's own WELCOME/COMEBACK/GOODBYE and
+// daily files are optional (common art or MISSING.ANS stands in), so a new
+// year can be installed while its pack is still arriving. Gaps are logged.
 func (v *Validator) ValidateArtFiles(year int) error {
 	yearDir := path.Join(v.baseArtDir, strconv.Itoa(year))
-
-	// Check if year directory exists
 	if _, err := fs.Stat(v.fs, yearDir); err != nil {
 		return fmt.Errorf("art directory for year %d does not exist", year)
 	}
 
-	// Check common directory exists
 	commonDir := path.Join(v.baseArtDir, "common")
-	if _, err := fs.Stat(v.fs, commonDir); err != nil {
-		return fmt.Errorf("art/common directory does not exist")
+	var missingCommon []string
+	for _, name := range []string{"MISSING.ANS", "NOTYET.ANS"} {
+		if _, err := fs.Stat(v.fs, path.Join(commonDir, name)); err != nil {
+			missingCommon = append(missingCommon, name)
+		}
+	}
+	if len(missingCommon) > 0 {
+		return fmt.Errorf("missing required common art files: %v", missingCommon)
 	}
 
-	// Required common files (year-independent)
-	requiredCommonFiles := []string{
-		path.Join(commonDir, "MISSING.ANS"),
-		path.Join(commonDir, "NOTYET.ANS"),
-	}
-
-	// Required year-specific files
-	requiredYearFiles := []string{
-		path.Join(yearDir, "WELCOME.ANS"),
-		path.Join(yearDir, "COMEBACK.ANS"),
-		path.Join(yearDir, "GOODBYE.ANS"),
-	}
-
-	// Check required common files
-	missingFiles := []string{}
-
-	// Check common files
-	for _, file := range requiredCommonFiles {
-		if _, err := fs.Stat(v.fs, file); err != nil {
-			missingFiles = append(missingFiles, path.Base(file))
+	var missingScreens []string
+	for _, name := range []string{"WELCOME.ANS", "COMEBACK.ANS", "GOODBYE.ANS"} {
+		if _, err := fs.Stat(v.fs, path.Join(yearDir, name)); err != nil {
+			missingScreens = append(missingScreens, name)
 		}
 	}
 
-	// Check year-specific files
-	for _, file := range requiredYearFiles {
-		if _, err := fs.Stat(v.fs, file); err != nil {
-			missingFiles = append(missingFiles, path.Base(file))
-		}
-	}
-
-	if len(missingFiles) > 0 {
-		return fmt.Errorf("missing required art files: %v", missingFiles)
-	}
-
-	// Check daily art files (warn but don't fail)
-	currentYear := time.Now().Year()
-	maxDay := 25
-	if year == currentYear && time.Now().Month() == time.December {
-		maxDay = time.Now().Day()
-		if maxDay > 25 {
-			maxDay = 25
-		}
-	}
-
-	missingDays := []int{}
-	for day := 1; day <= maxDay; day++ {
-		fileName := fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(year)[2:])
-		filePath := path.Join(yearDir, fileName)
-		if _, err := fs.Stat(v.fs, filePath); err != nil {
+	suffix := strconv.Itoa(year)[2:]
+	var missingDays []int
+	for day := 1; day <= 25; day++ {
+		padded := path.Join(yearDir, fmt.Sprintf("%02d_DEC%s.ANS", day, suffix))
+		plain := path.Join(yearDir, fmt.Sprintf("%d_DEC%s.ANS", day, suffix))
+		_, errPadded := fs.Stat(v.fs, padded)
+		_, errPlain := fs.Stat(v.fs, plain)
+		if errPadded != nil && errPlain != nil {
 			missingDays = append(missingDays, day)
 		}
 	}
 
-	if len(missingDays) > 0 {
+	if len(missingScreens) > 0 || len(missingDays) > 0 {
 		logrus.WithFields(logrus.Fields{
-			"year":         year,
-			"missing_days": missingDays,
-		}).Warn("Some daily art files are missing")
+			"year":            year,
+			"missing_screens": missingScreens,
+			"missing_days":    missingDays,
+		}).Warn("Some art files are missing; fallback art will be shown")
 	}
-
 	return nil
 }
 
@@ -196,15 +159,6 @@ func (v *Validator) GetValidationReport(year int) *ValidationReport {
 	if err := v.ValidateArtFiles(year); err != nil {
 		report.Issues = append(report.Issues, ValidationIssue{
 			Type:     "art_files",
-			Message:  err.Error(),
-			Severity: "error",
-		})
-	}
-
-	// Check date validity
-	if err := v.ValidateDate(); err != nil {
-		report.Issues = append(report.Issues, ValidationIssue{
-			Type:     "date",
 			Message:  err.Error(),
 			Severity: "error",
 		})

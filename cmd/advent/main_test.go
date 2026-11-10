@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,8 +45,15 @@ func runDoorProcess(t *testing.T, stdin string, args ...string) []byte {
 
 func dropFile(t *testing.T) string {
 	t.Helper()
+	return dropFileWithTime(t, 42)
+}
+
+// dropFileWithTime writes a door32.sys giving the caller minutesLeft minutes.
+func dropFileWithTime(t *testing.T, minutesLeft int) string {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "DOOR32.SYS")
-	if err := os.WriteFile(path, []byte("0\r\n0\r\n57600\r\nTest BBS\r\n1\r\nReal Name\r\nCaller\r\n255\r\n42\r\n1\r\n3\r\n"), 0600); err != nil {
+	body := fmt.Sprintf("0\r\n0\r\n57600\r\nTest BBS\r\n1\r\nReal Name\r\nCaller\r\n255\r\n%d\r\n1\r\n3\r\n", minutesLeft)
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -98,5 +106,120 @@ func TestGoDoorsUserMetadata(t *testing.T) {
 	}
 	if user := getUserInfo(true, &info); user.Alias != "SysOp" {
 		t.Fatalf("local user: %+v", user)
+	}
+}
+
+// artLine returns a middle line of an art file as the local-mode door renders it.
+func artLine(t *testing.T, path string) []byte {
+	t.Helper()
+	de := newDisplayEngine(80, 25)
+	lines, err := de.LoadAnsiLines(path)
+	if err != nil || len(lines) < 6 {
+		t.Fatalf("load %s: %v", path, err)
+	}
+	return []byte(lines[5])
+}
+
+func TestOffSeasonOpensArchive(t *testing.T) {
+	*localMode = true
+	defer func() { *localMode = false }()
+	welcome := artLine(t, "art/2025/WELCOME.ANS")
+	notYet := artLine(t, "art/common/NOTYET.ANS")
+
+	out := runDoorProcess(t, "q", "-local", "-nodetect", "-debug-date=2026-07-04")
+	if bytes.Contains(out, notYet) {
+		t.Fatal("off-season door showed NOTYET instead of the archive")
+	}
+	if !bytes.Contains(out, welcome) {
+		t.Fatal("off-season door did not open the newest past season (2025)")
+	}
+}
+
+func TestLogonOffSeasonIsSilent(t *testing.T) {
+	out := runDoorProcess(t, "", "-path", dropFile(t), "-logon", "-debug-date=2026-07-04")
+	if len(out) != 0 {
+		t.Fatalf("off-season logon wrote %d bytes; want nothing (no probe, no art)", len(out))
+	}
+}
+
+// TestLogonIgnoresTypeAhead checks that a key already waiting when the door
+// starts (the LF after the caller's Enter at the BBS) doesn't dismiss today's
+// door, and that a real key afterwards does.
+func TestLogonIgnoresTypeAhead(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestDoorProcess$",
+		"-path", dropFile(t), "-logon", "-nodetect", "-debug-date=2025-12-03")
+	cmd.Env = append(os.Environ(), "MG_ADVENT_TEST_PROCESS=1")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	stdin.Write([]byte("\n"))
+	select {
+	case err := <-done:
+		t.Fatalf("logon exited on type-ahead (err %v); today's door was not shown", err)
+	case <-time.After(1500 * time.Millisecond):
+	}
+	stdin.Write([]byte("x"))
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("door process: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		cmd.Process.Kill()
+		t.Fatal("logon did not exit after a key press")
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(display.ShowCursor)) {
+		t.Fatal("terminal was not restored")
+	}
+}
+
+func TestPlausibleTermSize(t *testing.T) {
+	for _, tc := range []struct {
+		w, h int
+		ok   bool
+	}{
+		{80, 25, true}, {132, 50, true}, {80, 24, true},
+		{80, 12, false},   // half-height answer seen from mTelnet (issue #2)
+		{40, 25, false},   // too narrow for the art
+		{999, 999, false}, // terminal didn't clamp the probe cursor
+	} {
+		if got := plausibleTermSize(tc.w, tc.h); got != tc.ok {
+			t.Errorf("plausibleTermSize(%d, %d) = %v, want %v", tc.w, tc.h, got, tc.ok)
+		}
+	}
+}
+
+func TestSessionLimitUsesBBSTimeLeft(t *testing.T) {
+	if got := sessionLimit(display.User{TimeLeft: 42 * time.Minute}); got != 42*time.Minute {
+		t.Fatalf("limit = %v, want the caller's 42 minutes", got)
+	}
+	if got := sessionLimit(display.User{TimeLeft: 600 * time.Minute}); got != maxSessionTime {
+		t.Fatalf("limit = %v, want cap %v", got, maxSessionTime)
+	}
+	// An explicit zero from door32.sys means the caller is out of time.
+	if got := sessionLimit(getUserInfo(false, &gd.DropFile{TimeLeft: 0})); got != 0 {
+		t.Fatalf("zero minutes left: limit = %v, want 0", got)
+	}
+	if got := sessionLimit(display.User{TimeLeft: -5 * time.Minute}); got != 0 {
+		t.Fatalf("negative time left: limit = %v, want 0", got)
+	}
+}
+
+func TestDoorWithNoTimeLeftReturnsToBBS(t *testing.T) {
+	out := runDoorProcess(t, "", "-path", dropFileWithTime(t, 0), "-nodetect", "-debug-disable-date")
+	if !bytes.Contains(out, []byte("Your time is up")) {
+		t.Fatal("caller with no time left was not told their time is up")
+	}
+	if bytes.Contains(out, []byte(display.HideCursor)) {
+		t.Fatal("door started the session (drew art) for a caller with no time left")
 	}
 }

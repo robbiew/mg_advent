@@ -47,6 +47,21 @@ func NewInputHandler() *InputHandler  { return &InputHandler{} }
 func (ih *InputHandler) Open() error  { return gd.OpenInput() }
 func (ih *InputHandler) Close() error { gd.CloseInput(); return nil }
 
+// ErrTimeout is returned by ReadKeyTimeout when no key arrived in time.
+var ErrTimeout = gd.ErrInputTimeout
+
+// Drain discards keys that are already waiting, such as the line feed left
+// over from the caller's last Enter at the BBS prompt that launched the door.
+// It returns once no key arrives within quiet, input closes, or limit keys
+// have been discarded.
+func (ih *InputHandler) Drain(quiet time.Duration, limit int) {
+	for i := 0; i < limit; i++ {
+		if _, _, err := gd.ReadKeyTimeout(quiet); err != nil {
+			return
+		}
+	}
+}
+
 func (ih *InputHandler) ReadKey() (rune, Key, error) {
 	ch, key, err := gd.ReadKey()
 	if err != nil {

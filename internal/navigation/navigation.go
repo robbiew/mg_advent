@@ -1,14 +1,20 @@
 package navigation
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"path" // Use path instead of filepath for embedded FS (always forward slashes)
+	"slices"
 	"strconv"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
+
+// ErrNoYearsAvailable means no art year can be opened today: every installed
+// year is still in the future.
+var ErrNoYearsAvailable = errors.New("no art years available yet")
 
 // ScreenType represents different screens in the application
 type ScreenType int
@@ -47,64 +53,114 @@ type State struct {
 	AvailableYears []int
 }
 
-// Navigator handles navigation logic
+// Navigator handles navigation logic and decides which years and days are
+// open. Past seasons are open in full all year round; the current year opens
+// one day at a time during December; years still to come stay hidden.
 type Navigator struct {
-	baseArtDir      string
-	fs              fs.FS
-	disableDateCheck bool
+	baseArtDir string
+	fs         fs.FS
+	now        func() time.Time
+	unlockAll  bool
 }
 
 // NewNavigator creates a new navigator
 func NewNavigator(embeddedFS fs.FS, baseArtDir string) *Navigator {
 	return &Navigator{
-		baseArtDir:      baseArtDir,
-		fs:              embeddedFS,
-		disableDateCheck: false,
+		baseArtDir: baseArtDir,
+		fs:         embeddedFS,
+		now:        time.Now,
 	}
 }
 
-// SetDisableDateCheck sets whether date checking should be disabled
-func (n *Navigator) SetDisableDateCheck(disable bool) {
-	n.disableDateCheck = disable
+// SetClock replaces the calendar clock, e.g. to simulate a date with
+// -debug-date. Session timers are unaffected.
+func (n *Navigator) SetClock(now func() time.Time) {
+	n.now = now
 }
 
-// GetAvailableYears returns list of available years with art
-func (n *Navigator) GetAvailableYears() ([]int, error) {
-	var years []int
+// SetDisableDateCheck unlocks every installed year and day when disable is true.
+func (n *Navigator) SetDisableDateCheck(disable bool) {
+	n.unlockAll = disable
+}
 
+// GetAvailableYears returns every installed art year, oldest first, whether or
+// not it can be opened today. Index-based selection relies on this order:
+// 1 = oldest, 2 = next, and so on.
+func (n *Navigator) GetAvailableYears() ([]int, error) {
 	entries, err := fs.ReadDir(n.fs, n.baseArtDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read art directory: %w", err)
 	}
 
+	var years []int
 	for _, entry := range entries {
-		if entry.IsDir() {
-			year, err := strconv.Atoi(entry.Name())
-			if err == nil && year >= 2023 && year <= 2030 { // Reasonable year range
-				// Include all year directories - missing art will show MISSING.ANS
-				years = append(years, year)
-				logrus.WithField("year", year).Debug("Found year directory")
-			}
+		if !entry.IsDir() || len(entry.Name()) != 4 {
+			continue
+		}
+		year, err := strconv.Atoi(entry.Name())
+		if err == nil && year >= 2000 {
+			years = append(years, year)
 		}
 	}
-
-	// Sort years ascending (oldest first)
-	// This allows index-based selection: 1=oldest, 2=next, etc.
-	for i := 0; i < len(years)-1; i++ {
-		for j := i + 1; j < len(years); j++ {
-			if years[i] > years[j] {
-				years[i], years[j] = years[j], years[i]
-			}
-		}
-	}
-
+	slices.Sort(years)
 	return years, nil
+}
+
+// MaxDay reports how many days of year can be opened today: 25 for a past
+// season, today's date (capped at 25) for the current year in December, and
+// 0 for a year that is not open yet.
+func (n *Navigator) MaxDay(year int) int {
+	if n.unlockAll {
+		return 25
+	}
+	now := n.now()
+	switch {
+	case year < now.Year():
+		return 25
+	case year == now.Year() && now.Month() == time.December:
+		return min(now.Day(), 25)
+	default:
+		return 0
+	}
+}
+
+// VisibleYears returns the installed years that can be opened today, oldest
+// first.
+func (n *Navigator) VisibleYears() ([]int, error) {
+	years, err := n.GetAvailableYears()
+	if err != nil {
+		return nil, err
+	}
+	var visible []int
+	for _, year := range years {
+		if n.MaxDay(year) > 0 {
+			visible = append(visible, year)
+		}
+	}
+	return visible, nil
+}
+
+// LiveYear returns the year whose calendar is running today: it is December
+// and that year's art is installed. With the date check disabled the newest
+// installed year counts as live.
+func (n *Navigator) LiveYear() (int, bool) {
+	years, err := n.VisibleYears()
+	if err != nil || len(years) == 0 {
+		return 0, false
+	}
+	latest := years[len(years)-1]
+	if n.unlockAll {
+		return latest, true
+	}
+	now := n.now()
+	if now.Month() == time.December && latest == now.Year() {
+		return latest, true
+	}
+	return 0, false
 }
 
 // Navigate handles navigation based on current state and direction
 func (n *Navigator) Navigate(direction Direction, currentState State) (newState State, artPath string, err error) {
-	newState = currentState
-
 	switch currentState.Screen {
 	case ScreenWelcome:
 		return n.navigateFromWelcome(direction, currentState)
@@ -126,23 +182,12 @@ func (n *Navigator) Navigate(direction Direction, currentState State) (newState 
 
 // navigateFromWelcome handles navigation from welcome screen
 func (n *Navigator) navigateFromWelcome(direction Direction, state State) (State, string, error) {
-	switch direction {
-	case DirRight:
-		// Move to current day screen
-		state.Screen = ScreenDay
-
-		// CurrentDay is preserved from state (respects debug-date override)
-		// The state.CurrentDay was already set during initialization or via debug override
-		artPath := n.getDayArtPath(state.CurrentYear, state.CurrentDay)
-
-		return state, artPath, nil
-	case DirLeft:
-		// Stay on welcome screen
-		return state, "", nil
-	default:
-		// For now, only right arrow from welcome
+	if direction != DirRight {
 		return state, "", nil
 	}
+	state.Screen = ScreenDay
+	state.CurrentDay = max(1, min(state.CurrentDay, state.MaxDay))
+	return state, n.getDayArtPath(state.CurrentYear, state.CurrentDay), nil
 }
 
 // navigateFromDay handles navigation from day screen
@@ -157,164 +202,89 @@ func (n *Navigator) navigateFromDay(direction Direction, state State) (State, st
 	case DirRight:
 		if state.CurrentDay < state.MaxDay {
 			state.CurrentDay++
-			artPath := n.getDayArtPath(state.CurrentYear, state.CurrentDay)
-			logrus.WithField("newDay", state.CurrentDay).Debug("Moving to next day")
-			return state, artPath, nil
-		} else if state.MaxDay < 25 {
-			// Move to comeback screen
-			state.Screen = ScreenComeback
-			artPath := n.getComebackArtPath(state.CurrentYear)
-			logrus.Debug("Moving to comeback screen")
-			return state, artPath, nil
-		} else {
-			// Stay on last day
-			logrus.Debug("Already at last day, staying")
-			return state, "", nil
+			return state, n.getDayArtPath(state.CurrentYear, state.CurrentDay), nil
 		}
+		if state.MaxDay < 25 {
+			// Today's door is the last one open: invite the caller back tomorrow.
+			state.Screen = ScreenComeback
+			return state, n.getComebackArtPath(state.CurrentYear), nil
+		}
+		return state, "", nil
 	case DirLeft:
 		if state.CurrentDay > 1 {
 			state.CurrentDay--
-			artPath := n.getDayArtPath(state.CurrentYear, state.CurrentDay)
-			logrus.WithField("newDay", state.CurrentDay).Debug("Moving to previous day")
-			return state, artPath, nil
-		} else {
-			// Move to welcome screen
-			state.Screen = ScreenWelcome
-			artPath := n.getWelcomeArtPath(state.CurrentYear)
-			logrus.Debug("Moving to welcome screen")
-			return state, artPath, nil
+			return state, n.getDayArtPath(state.CurrentYear, state.CurrentDay), nil
 		}
+		state.Screen = ScreenWelcome
+		return state, n.getWelcomeArtPath(state.CurrentYear), nil
 	default:
-		logrus.WithField("direction", direction).Debug("Unhandled direction from day screen")
 		return state, "", nil
 	}
 }
 
 // navigateFromComeback handles navigation from comeback screen
 func (n *Navigator) navigateFromComeback(direction Direction, state State) (State, string, error) {
-	switch direction {
-	case DirLeft:
-		// Move back to last available day
-		state.Screen = ScreenDay
-		state.CurrentDay = state.MaxDay
-		artPath := n.getDayArtPath(state.CurrentYear, state.CurrentDay)
-		return state, artPath, nil
-	case DirRight:
-		// Stay on comeback screen
-		return state, "", nil
-	default:
+	if direction != DirLeft {
 		return state, "", nil
 	}
+	state.Screen = ScreenDay
+	state.CurrentDay = state.MaxDay
+	return state, n.getDayArtPath(state.CurrentYear, state.CurrentDay), nil
 }
 
 // navigateFromYearSelect handles navigation from year selection screen
 func (n *Navigator) navigateFromYearSelect(_ Direction, state State) (State, string, error) {
-	// Year selection navigation would be implemented here
-	// For now, return to welcome
 	state.Screen = ScreenWelcome
-	artPath := n.getWelcomeArtPath(state.CurrentYear)
-	return state, artPath, nil
+	return state, n.getWelcomeArtPath(state.CurrentYear), nil
 }
 
-// SetYear changes the current year
-func (n *Navigator) SetYear(year int) error {
-	// Validate year exists
-	years, err := n.GetAvailableYears()
-	if err != nil {
-		return err
+// SelectYear switches to year's welcome screen, recomputing which of its days
+// are open. year must be one of state.AvailableYears.
+func (n *Navigator) SelectYear(year int, state State) (State, string, error) {
+	if !slices.Contains(state.AvailableYears, year) {
+		return state, "", fmt.Errorf("year %d not available", year)
 	}
-
-	for _, y := range years {
-		if y == year {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("year %d not available", year)
+	state.CurrentYear = year
+	state.MaxDay = n.MaxDay(year)
+	state.CurrentDay = 1
+	state.Screen = ScreenWelcome
+	return state, n.getWelcomeArtPath(year), nil
 }
 
 // SelectYearByIndex selects a year by its index (1-based) from available years
 // Years are sorted ascending (oldest first), so index 1 = oldest year, index 2 = next, etc.
-// Returns the selected year and updated state, or error if invalid index
 func (n *Navigator) SelectYearByIndex(index int, currentState State) (State, string, error) {
 	if index < 1 || index > len(currentState.AvailableYears) {
 		return currentState, "", fmt.Errorf("invalid year index: %d", index)
 	}
-
-	// Get the year (years are sorted ascending: oldest first)
-	selectedYear := currentState.AvailableYears[index-1]
-
-	// Update state with new year
-	currentState.CurrentYear = selectedYear
-	currentState.MaxDay = n.calculateMaxDay()
-
-	// When switching years, start with the year's welcome screen
-	currentState.Screen = ScreenWelcome
-
-	// Get art path for the year's welcome screen
-	artPath := n.getWelcomeArtPath(selectedYear)
-
-	return currentState, artPath, nil
+	return n.SelectYear(currentState.AvailableYears[index-1], currentState)
 }
 
-// GetInitialState returns the initial application state
+// GetInitialState opens the newest year that can be viewed today: the live
+// season in December, otherwise the most recent past season. It returns
+// ErrNoYearsAvailable when nothing is open yet.
 func (n *Navigator) GetInitialState() (State, error) {
-	years, err := n.GetAvailableYears()
+	years, err := n.VisibleYears()
 	if err != nil {
 		return State{}, err
 	}
-
 	if len(years) == 0 {
-		return State{}, fmt.Errorf("no art years available")
+		return State{}, ErrNoYearsAvailable
 	}
 
-	// Always use the newest available year (last in ascending sorted list)
-	// This ensures we default to the current advent season regardless of system date
 	selectedYear := years[len(years)-1]
-
 	logrus.WithFields(logrus.Fields{
-		"availableYears": years,
-		"selectedYear":   selectedYear,
+		"visibleYears": years,
+		"selectedYear": selectedYear,
 	}).Info("Selected initial year")
 
-	// Calculate max day for the year
-	maxDay := n.calculateMaxDay()
-
-	// For advent calendar, we always start at day 1
-	// The maxDay calculation will handle whether future days are accessible
-	currentDay := 1
-
-	state := State{
+	return State{
 		CurrentYear:    selectedYear,
-		CurrentDay:     currentDay,
+		CurrentDay:     1,
 		Screen:         ScreenWelcome,
-		MaxDay:         maxDay,
+		MaxDay:         n.MaxDay(selectedYear),
 		AvailableYears: years,
-	}
-
-	return state, nil
-}
-
-// calculateMaxDay calculates the maximum available day for a year
-func (n *Navigator) calculateMaxDay() int {
-	// If date checking is disabled (debug mode), allow all 25 days
-	if n.disableDateCheck {
-		return 25
-	}
-
-	now := time.Now()
-
-	// If it's December, limit to the current day (max 25)
-	if now.Month() == time.December {
-		day := now.Day()
-		if day > 25 {
-			return 25
-		}
-		return day
-	}
-
-	// If not December, no days are accessible (should show NOTYET.ANS instead)
-	return 0
+	}, nil
 }
 
 // getDayArtPath returns the path to a day's art file
@@ -322,80 +292,45 @@ func (n *Navigator) getDayArtPath(year, day int) string {
 	yearDir := path.Join(n.baseArtDir, strconv.Itoa(year))
 	yearSuffix := strconv.Itoa(year)[2:]
 
-	// Try both zero-padded (01_DEC25.ANS) and single-digit (1_DEC25.ANS) formats
-	var primaryFileName, fallbackFileName string
-
-	// For 2025 and later, try zero-padded format first
+	// 2025 onward use zero-padded names (01_DEC25.ANS); earlier years do not
+	// (1_DEC24.ANS). Try the year's convention first, then the other.
+	padded := fmt.Sprintf("%02d_DEC%s.ANS", day, yearSuffix)
+	plain := fmt.Sprintf("%d_DEC%s.ANS", day, yearSuffix)
+	names := []string{plain, padded}
 	if year >= 2025 {
-		// Zero-padded format (e.g., 01_DEC25.ANS)
-		primaryFileName = fmt.Sprintf("%02d_DEC%s.ANS", day, yearSuffix)
-		// Single-digit format as fallback (e.g., 1_DEC25.ANS)
-		fallbackFileName = fmt.Sprintf("%d_DEC%s.ANS", day, yearSuffix)
-	} else {
-		// For 2024 and earlier, try single-digit format first
-		primaryFileName = fmt.Sprintf("%d_DEC%s.ANS", day, yearSuffix)
-		// Zero-padded format as fallback
-		fallbackFileName = fmt.Sprintf("%02d_DEC%s.ANS", day, yearSuffix)
+		names = []string{padded, plain}
 	}
-
-	// Try primary format first
-	primaryPath := path.Join(yearDir, primaryFileName)
-	if _, err := fs.Stat(n.fs, primaryPath); err == nil {
-		return primaryPath
+	for _, name := range names {
+		p := path.Join(yearDir, name)
+		if _, err := fs.Stat(n.fs, p); err == nil {
+			return p
+		}
 	}
-
-	// Try fallback format if primary format doesn't exist
-	fallbackPath := path.Join(yearDir, fallbackFileName)
-	if _, err := fs.Stat(n.fs, fallbackPath); err == nil {
-		return fallbackPath
-	}
-
-	// If neither exists, return the primary format path
-	// This will eventually fall back to MISSING.ANS in the display engine
-	return primaryPath
+	// Neither exists; the display engine falls back to MISSING.ANS.
+	return path.Join(yearDir, names[0])
 }
 
 // getWelcomeArtPath returns the path to the welcome art file
 func (n *Navigator) getWelcomeArtPath(year int) string {
-	yearDir := path.Join(n.baseArtDir, strconv.Itoa(year))
-	return path.Join(yearDir, "WELCOME.ANS")
+	return path.Join(n.baseArtDir, strconv.Itoa(year), "WELCOME.ANS")
 }
 
 // getComebackArtPath returns the path to the comeback art file
 func (n *Navigator) getComebackArtPath(year int) string {
-	yearDir := path.Join(n.baseArtDir, strconv.Itoa(year))
-	return path.Join(yearDir, "COMEBACK.ANS")
+	return path.Join(n.baseArtDir, strconv.Itoa(year), "COMEBACK.ANS")
 }
 
 // ValidateState validates that the current state is consistent
 func (n *Navigator) ValidateState(state State) error {
-	// Check year is available
-	years, err := n.GetAvailableYears()
-	if err != nil {
-		return err
-	}
-
-	yearValid := false
-	for _, y := range years {
-		if y == state.CurrentYear {
-			yearValid = true
-			break
-		}
-	}
-	if !yearValid {
+	if !slices.Contains(state.AvailableYears, state.CurrentYear) {
 		return fmt.Errorf("current year %d is not available", state.CurrentYear)
 	}
-
-	// Check day is valid
 	if state.CurrentDay < 1 || state.CurrentDay > 25 {
 		return fmt.Errorf("current day %d is out of range", state.CurrentDay)
 	}
-
-	// Check max day is reasonable
 	if state.MaxDay < 1 || state.MaxDay > 25 {
 		return fmt.Errorf("max day %d is out of range", state.MaxDay)
 	}
-
 	return nil
 }
 
