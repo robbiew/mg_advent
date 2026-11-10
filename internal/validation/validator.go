@@ -61,7 +61,29 @@ func (v *Validator) ValidateArtFiles(year int) error {
 		slog.Warn("some art files are missing; fallback art will be shown",
 			"year", year, "missing_screens", missingScreens, "missing_days", missingDays)
 	}
+	if placeholders := v.Placeholders(year); len(placeholders) > 0 {
+		slog.Warn("year still has placeholder art", "year", year, "count", len(placeholders), "files", placeholders)
+	}
 	return nil
+}
+
+// Placeholders lists year's art files that are still generated placeholders.
+func (v *Validator) Placeholders(year int) []string {
+	yearDir := path.Join(v.baseArtDir, strconv.Itoa(year))
+	entries, err := fs.ReadDir(v.fs, yearDir)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if data, err := fs.ReadFile(v.fs, path.Join(yearDir, e.Name())); err == nil && art.IsPlaceholder(data) {
+			names = append(names, e.Name())
+		}
+	}
+	return names
 }
 
 func (v *Validator) exists(p string) bool {

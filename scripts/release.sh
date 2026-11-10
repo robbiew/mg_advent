@@ -56,6 +56,9 @@ if ! command -v gh &> /dev/null; then
     exit 1
 fi
 
+# Refuse to publish while placeholder art is embedded
+"$(dirname "$0")/check-placeholders.sh"
+
 # Check if authenticated
 if ! gh auth status &> /dev/null; then
     echo "ERROR: GitHub CLI is not authenticated."

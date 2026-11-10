@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/robbiew/advent/internal/art"
+	"github.com/robbiew/advent/internal/embedded"
 )
 
 func TestValidateArtFiles(t *testing.T) {
@@ -43,5 +46,26 @@ func TestValidateTerminal(t *testing.T) {
 	}
 	if v.ValidateEmulation(1) != nil || v.ValidateEmulation(0) == nil {
 		t.Fatal("emulation check wrong")
+	}
+}
+
+func TestPlaceholders(t *testing.T) {
+	fs := fstest.MapFS{
+		"art/2026/WELCOME.ANS":  {Data: []byte("x" + art.PlaceholderMarker + "x")},
+		"art/2026/01_DEC26.ANS": {Data: []byte("real art")},
+	}
+	got := NewValidator(fs, "art").Placeholders(2026)
+	if len(got) != 1 || got[0] != "WELCOME.ANS" {
+		t.Fatalf("placeholders = %v, want [WELCOME.ANS]", got)
+	}
+}
+
+// The shipped art may contain placeholders only for years not yet released.
+func TestShippedSeasonsHaveNoPlaceholders(t *testing.T) {
+	v := NewValidator(embedded.ArtFS, "art")
+	for _, year := range []int{2023, 2024, 2025} {
+		if p := v.Placeholders(year); len(p) > 0 {
+			t.Errorf("%d contains placeholder art: %v", year, p)
+		}
 	}
 }
