@@ -15,19 +15,16 @@ This repository now contains all versions of the Advent Calendar:
 
 ```text
 mg_advent/
-├── cmd/           # Go entry point
-├── internal/      # Go core modules
-├── art/           # Modern art assets (Go version)
-├── dos/           # All DOS/Turbo Pascal code and assets
-│   ├── ADVENT.PAS
-│   ├── *.DAT
-│   ├── build_utils/
-│   └── art/
-│       ├── 2023/
-│       ├── 2024/
-│       ├── 2025/
-│       └── common/
-└── ...
+├── cmd/advent/              # the door (entry point, main loop, logon mode)
+├── internal/                # Go packages: art, display, navigation, session, ...
+│   └── embedded/art/        # all art, compiled into the binary
+│       ├── 2023/ 2024/ 2025/    # released seasons
+│       ├── 2026/                # this season (placeholder art until delivered)
+│       └── common/              # fallback screens
+├── tools/mkplaceholders/    # generates placeholder art for a new year
+├── scripts/                 # build, package and release scripts
+├── memory-bank/             # maintainer notes: architecture, runbook, history
+└── dos/                     # legacy Turbo Pascal version (src/, build/)
 ```
 
 ## Quick Setup
@@ -65,10 +62,9 @@ All DOS code and assets are in `dos/`. You need Turbo Pascal 7 or compatible.
  cd dos
  ```
 
-1. Open `ADVENT.PAS` in Turbo Pascal 7 and compile, or use batch/scripts in `build_utils/` if available.
+1. Compile `src/advent.pas` with Turbo Pascal 7 / Free Pascal, or use
+   `build/dos_build.sh` (`build/dos_build.bat` on DOS).
 2. Run the resulting executable in DOS or DOSBox.
-
-Art assets for DOS are in `dos/art/` (identical structure to modern art/).
 
 ## Command Line Options
 
@@ -108,17 +104,34 @@ answer the size probe badly.
 
 ## Adding a New Year
 
-1. Create `internal/embedded/art/<year>/` with the daily art named
-   `01_DEC26.ANS` through `25_DEC26.ANS` (2025 onward use two-digit days).
-2. Add `WELCOME.ANS`, `COMEBACK.ANS` and `GOODBYE.ANS`, plus optional
-   `INFOFILE.ANS` and `MEMBERS.ANS`. The welcome screen should list the year
-   keys: `1` is the oldest year, counting up to the newest.
-3. Rebuild. Missing pieces don't block a release: a year without its own
-   WELCOME/COMEBACK/GOODBYE uses `art/common`, and a missing daily file shows
-   `MISSING.ANS`, so art can be added as it arrives.
-4. Preview before the season with
-   `./advent -local -debug-date=2026-12-25` (whole season) or
-   `-debug-date=2026-12-03` (as callers will see it on the 3rd).
+The year's art lives in `internal/embedded/art/<year>/`. Start from
+placeholders, then replace them as the pack is delivered:
+
+1. Generate placeholders for every file the door needs:
+
+   ```bash
+   go run ./tools/mkplaceholders -year 2027
+   ```
+
+   This writes `WELCOME.ANS` (the year menu), `COMEBACK.ANS`, `GOODBYE.ANS`,
+   `INFOFILE.ANS`, `MEMBERS.ANS` and `01_DEC27.ANS` … `25_DEC27.ANS` (2025
+   onward use two-digit days). It never overwrites a file that already
+   exists. 2026 placeholders are already in the repository.
+2. Drop each real file in under the same name. The welcome and come-back
+   screens are the year menu: `1` is the oldest year, counting up; `I`, `M`
+   and `Q` are info, members and quit. List what is left with
+   `grep -rl ADVENT-PLACEHOLDER internal/embedded/art`.
+3. Preview with `./advent -local -debug-date=2026-12-03` (as callers see it
+   on the 3rd) or `-debug-date=2026-12-25` (the whole season). The new year
+   stays hidden from callers until 1 December, so it can ship early.
+4. Release. `scripts/build.sh` and `scripts/release.sh` refuse to run while
+   any placeholder is embedded (`ALLOW_PLACEHOLDERS=1` for a test build).
+   Update the release-package files in `internal/embedded/` (FILE_ID, INFOFILE,
+   MEMBERS, LICENSE) for the new pack.
+
+A year missing its own WELCOME/COMEBACK/GOODBYE uses `art/common`, and a
+missing day shows `MISSING.ANS`, so a partly delivered year still runs. The
+full checklist is in [memory-bank/season-runbook.md](memory-bank/season-runbook.md).
 
 ## Building from Source
 
@@ -181,11 +194,11 @@ go test -race ./...
 
 ## Usage
 
-- **Arrow Keys**: Navigate between days
-- **1-9**: Jump to a year (1 = oldest)
-- **Q or ESC**: Return to welcome screen / exit
-- **I**: View info file
-- **M**: View members list
+| Screen | Keys |
+| --- | --- |
+| Welcome | `→` or Enter: open the calendar · `1`–`9`: pick a year (1 = oldest) · `[` `]` or PgUp/PgDn: previous / next year · `I` info · `M` members · `Q`/Esc: quit |
+| Day | `←` `→`: previous / next door · `↑` `↓`: scroll tall art · `Q`/Esc: back to Welcome |
+| Info, Members | `↑` `↓`, PgUp/PgDn, Home/End: scroll · `Q`/Esc: back |
 
 ## License
 
@@ -193,6 +206,8 @@ This project is released under the terms specified in the LICENSE file.
 
 ---
 
-### Migration Note (2025)
+### Maintainer notes
 
-The `dos/` directory is a work in progress and is not fully functional. The focus is on maintaining the modern Go version. Contributions to the DOS version are welcome but may require significant effort to bring it up to date.
+`memory-bank/` describes the architecture, the rules the code relies on,
+the yearly runbook and the project history. The `dos/` directory is a work in
+progress and is not fully functional; the focus is the Go version.
