@@ -142,7 +142,9 @@ func menuLines(year int, earlier []int) []line {
 	for i := 0; i < len(keys); i += 3 {
 		out = append(out, line{strings.Join(keys[i:min(i+3, len(keys))], "     "), cyan})
 	}
-	return append(out, line{"I  INFOFILE      M  MEMBERLIST      Q  QUIT", cyan})
+	return append(out,
+		line{"[ ]  or  PGUP PGDN   previous / next year", cyan},
+		line{"I  INFOFILE      M  MEMBERLIST      Q  QUIT", cyan})
 }
 
 func tallScreen(s screen, year int) []string {

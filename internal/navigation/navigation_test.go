@@ -153,3 +153,24 @@ func TestIgnoresNonYearDirectories(t *testing.T) {
 		t.Fatalf("years = %v, %v", years, err)
 	}
 }
+
+func TestStepYear(t *testing.T) {
+	n := navAt(t, "2026-12-03")
+	state, err := n.GetInitialState() // 2026, the live season
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := n.StepYear(1, state); s.CurrentYear != 2026 {
+		t.Fatalf("stepping past the newest year moved to %d", s.CurrentYear)
+	}
+	state = n.StepYear(-1, state)
+	if state.CurrentYear != 2025 || state.MaxDay != 25 || state.Screen != ScreenWelcome {
+		t.Fatalf("previous year: %+v", state)
+	}
+	for i := 0; i < 5; i++ {
+		state = n.StepYear(-1, state)
+	}
+	if state.CurrentYear != 2023 {
+		t.Fatalf("should stop at the oldest year, got %d", state.CurrentYear)
+	}
+}
