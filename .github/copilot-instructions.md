@@ -49,14 +49,13 @@ art/
 # Generates coverage.out and coverage.html
 
 # Local testing (bypasses BBS dropfile requirement)
-go run cmd/advent/main.go --local --debug-disable-date --debug-date=2024-12-15
+go run ./cmd/advent -local -debug-date=2026-12-15
 ```
 
 ### Debugging Flags (Essential for Development)
 - `--local`: Enables UTF-8 mode for local terminals
-- `--debug-disable-date`: Bypasses December-only restriction
-- `--debug-date=YYYY-MM-DD`: Override current date for testing
-- `--debug-disable-art`: Skip art file validation
+- `--debug-disable-date`: Unlocks every installed year and day
+- `--debug-date=YYYY-MM-DD`: Pretend today is this date (calendar only; session timers use the real clock)
 - `--path=/path/to/door32.sys`: BBS dropfile path (required in production)
 
 ## Project-Specific Patterns
@@ -67,11 +66,14 @@ type State struct {
     CurrentYear    int        // 2023, 2024, 2025
     CurrentDay     int        // 1-25
     Screen         ScreenType // Welcome, Day, Comeback, etc.
-    MaxDay         int        // User's allowed day (today's date)
+    MaxDay         int        // Days of CurrentYear open today (Navigator.MaxDay)
 }
 ```
 
-**Critical Logic**: Users can only view art up to current date - future dates show "COMEBACK.ANS"
+**Critical Logic** (`Navigator.MaxDay`): past years are open in full all year;
+the current year opens one day at a time in December (paging past today shows
+"COMEBACK.ANS"); future years are hidden. Never gate the whole door on the
+month - off-season callers browse the archive.
 
 ### Configuration Approach
 1. **Hard-coded defaults**: 5min timeout, "art/" directory, 50MB cache
@@ -81,10 +83,10 @@ type State struct {
 ### Error Handling Patterns
 - **Missing art**: Shows `MISSING.ANS` with filename in bottom-right corner
 - **BBS connection failures**: Fatal errors - door cannot function without proper I/O
-- **Graceful timeouts**: `timeout_idle: "5m"`, `timeout_max: "120m"`
+- **Graceful timeouts**: 5 min idle; total capped at the caller's door32.sys time left (max 120 min)
 
 ### Session Management (`internal/session/`)
-- **Dual timers**: Idle timeout resets on input, max timeout is absolute
+- **No timers or goroutines**: `Manager.Next` gives the input wait; the main loop reads with that timeout and exits through normal cleanup
 - **BBS compatibility**: Must handle user disconnections gracefully
 - **State persistence**: No database - all state is session-based
 
@@ -102,8 +104,7 @@ type State struct {
 
 ## Common Pitfalls
 - **Never** write to `os.Stdout` in BBS mode - always use GoDoors or the display engine
-- **Art validation** is required - missing files break user experience
-- **Date validation** is enforced by default - use debug flags for testing
+- **Art fallbacks**: year screens fall back to `art/common`, missing days show `MISSING.ANS`; only common MISSING/NOTYET are required
 - **Cross-platform differences**: Windows uses socket inheritance, Linux uses STDIO
 - **Column handling**: 80-column terminals need special care for proper display
 

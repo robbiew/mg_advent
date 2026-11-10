@@ -8,36 +8,54 @@ COMMAND LINE SWITCHES
 The Mistigris Advent Calendar BBS Door supports the following command line switches. 
 Only "-path" is required:
       
-  -path <filepath>
-      Path to door32.sys file
-      
+  -path <path>
+      door32.sys, or the directory containing it
+
   -logon
-      Logon mode: show current day's door, then COMEBACK.ANS and exit
-      
+      Logon mode: show today's door (30 seconds or until a key is
+      pressed), then exit. Outside the December season it exits at once
+      without output, so it can stay in your logon event all year.
+
+  -nodetect
+      Skip terminal size detection and use 80x25
+
+  -noice
+      Leave the terminal's ICE colour mode unchanged
+
   -debug-date <YYYY-MM-DD>
-      Override date for testing
-      
+      Pretend today is this date, for previewing a season
+
   -debug-disable-date
-      Disable date validation (allows running outside of December)
+      Unlock every installed year and day
 
   -version
       Show version and author information
 
 
+HOW THE CALENDAR OPENS
+----------------------
+Past years can be browsed in full at any time of year. The current year
+opens one door per day from December 1st to 25th. Years whose season has
+not started yet stay hidden.
+
+Sessions end after 5 minutes without a key or when the caller's BBS time
+runs out (at most 2 hours).
+
+
 EXAMPLES
 --------
-Run as a BBS door with door32.sys:
+Run as a BBS door (no batch file needed):
+  advent -path /path/to/node/dir
   advent -path /path/to/door32.sys
 
-Run in logon mode (shows current day and exits):
-  advent -logon -path /path/to/door32.sys
+Run in logon mode:
+  advent -logon -path /path/to/node/dir
 
 
 WINDOWS SUPPORT
 ---------------
 Current releases use GoDoors and require Windows 10 / Server 2016 or later.
 Windows 7 and the former Go 1.20 build path are no longer supported.
-The door still accepts -path with the full path to door32.sys.
 
 IMPORTANT NOTE FOR LINUX USERS
 ------------------------------

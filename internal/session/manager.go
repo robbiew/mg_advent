@@ -1,170 +1,71 @@
+// Package session tracks a caller's idle and total time limits.
+//
+// It holds no timers or goroutines: the door asks Next how long it may wait
+// for the next key and reads input with that timeout, so expiry is handled on
+// the main goroutine and normal cleanup (restoring the terminal, closing the
+// BBS session) always runs.
 package session
 
-import (
-	"sync"
-	"time"
+import "time"
 
-	"github.com/sirupsen/logrus"
+// Reason identifies which limit ended a session.
+type Reason int
+
+const (
+	// ReasonIdle means the caller pressed no key for the idle timeout.
+	ReasonIdle Reason = iota + 1
+	// ReasonTimeLimit means the session reached its total time allowance.
+	ReasonTimeLimit
 )
 
-// Manager handles session timeouts and idle detection
+func (r Reason) String() string {
+	switch r {
+	case ReasonIdle:
+		return "idle timeout"
+	case ReasonTimeLimit:
+		return "time limit"
+	default:
+		return "unknown"
+	}
+}
+
+// Manager tracks one caller's session limits. It is not safe for concurrent use.
 type Manager struct {
 	idleTimeout  time.Duration
-	maxTimeout   time.Duration
-	onIdle       func()
-	onMax        func()
-	idleTimer    *time.Timer
-	maxTimer     *time.Timer
+	deadline     time.Time
 	lastActivity time.Time
-	lock         sync.Mutex
-	running      bool
+	now          func() time.Time
 }
 
-// NewManager creates a new session manager
-func NewManager(idleTimeout, maxTimeout time.Duration, onIdle, onMax func()) *Manager {
+// NewManager starts a session that ends after idleTimeout without a key, or
+// after timeLimit in total, whichever comes first.
+func NewManager(idleTimeout, timeLimit time.Duration) *Manager {
+	return newManager(idleTimeout, timeLimit, time.Now)
+}
+
+func newManager(idleTimeout, timeLimit time.Duration, now func() time.Time) *Manager {
+	start := now()
 	return &Manager{
 		idleTimeout:  idleTimeout,
-		maxTimeout:   maxTimeout,
-		onIdle:       onIdle,
-		onMax:        onMax,
-		lastActivity: time.Now(),
+		deadline:     start.Add(timeLimit),
+		lastActivity: start,
+		now:          now,
 	}
 }
 
-// Start begins the session timers
-func (sm *Manager) Start() {
-	sm.lock.Lock()
-	defer sm.lock.Unlock()
-
-	if sm.running {
-		return
-	}
-
-	sm.running = true
-	sm.resetIdleTimer()
-	sm.resetMaxTimer()
-
-	logrus.WithFields(logrus.Fields{
-		"idle_timeout": sm.idleTimeout,
-		"max_timeout":  sm.maxTimeout,
-	}).Debug("Session manager started")
+// Touch records caller activity, restarting the idle timeout.
+func (m *Manager) Touch() {
+	m.lastActivity = m.now()
 }
 
-// Stop stops the session timers
-func (sm *Manager) Stop() {
-	sm.lock.Lock()
-	defer sm.lock.Unlock()
-
-	sm.running = false
-
-	if sm.idleTimer != nil {
-		sm.idleTimer.Stop()
-		sm.idleTimer = nil
+// Next returns how long the door may wait for the caller's next key and which
+// limit ends that wait. A duration of zero or less means the session is over.
+func (m *Manager) Next() (time.Duration, Reason) {
+	now := m.now()
+	idle := m.lastActivity.Add(m.idleTimeout).Sub(now)
+	left := m.deadline.Sub(now)
+	if left <= idle {
+		return left, ReasonTimeLimit
 	}
-
-	if sm.maxTimer != nil {
-		sm.maxTimer.Stop()
-		sm.maxTimer = nil
-	}
-
-	logrus.Debug("Session manager stopped")
-}
-
-// ResetIdleTimer resets the idle timeout
-func (sm *Manager) ResetIdleTimer() {
-	sm.lock.Lock()
-	defer sm.lock.Unlock()
-
-	sm.lastActivity = time.Now()
-
-	if !sm.running {
-		return
-	}
-
-	sm.resetIdleTimer()
-}
-
-// resetIdleTimer resets the idle timer (internal method)
-func (sm *Manager) resetIdleTimer() {
-	if sm.idleTimer != nil {
-		sm.idleTimer.Stop()
-	}
-
-	sm.idleTimer = time.AfterFunc(sm.idleTimeout, func() {
-		logrus.Warn("Idle timeout reached")
-		if sm.onIdle != nil {
-			sm.onIdle()
-		}
-	})
-}
-
-// resetMaxTimer resets the maximum session timer
-func (sm *Manager) resetMaxTimer() {
-	if sm.maxTimer != nil {
-		sm.maxTimer.Stop()
-	}
-
-	sm.maxTimer = time.AfterFunc(sm.maxTimeout, func() {
-		logrus.Warn("Maximum session time reached")
-		if sm.onMax != nil {
-			sm.onMax()
-		}
-	})
-}
-
-// GetIdleTime returns how long the session has been idle
-func (sm *Manager) GetIdleTime() time.Duration {
-	sm.lock.Lock()
-	defer sm.lock.Unlock()
-	return time.Since(sm.lastActivity)
-}
-
-// GetRemainingTime returns remaining time before max timeout
-func (sm *Manager) GetRemainingTime() time.Duration {
-	sm.lock.Lock()
-	defer sm.lock.Unlock()
-
-	if !sm.running || sm.maxTimer == nil {
-		return 0
-	}
-
-	// This is approximate since we can't get exact remaining time from timer
-	// In a real implementation, you'd track start time
-	return sm.maxTimeout
-}
-
-// IsActive returns whether the session manager is active
-func (sm *Manager) IsActive() bool {
-	sm.lock.Lock()
-	defer sm.lock.Unlock()
-	return sm.running
-}
-
-// ExtendMaxTimeout extends the maximum session time (for special cases)
-func (sm *Manager) ExtendMaxTimeout(extension time.Duration) {
-	sm.lock.Lock()
-	defer sm.lock.Unlock()
-
-	if !sm.running {
-		return
-	}
-
-	sm.maxTimeout += extension
-	sm.resetMaxTimer()
-
-	logrus.WithField("extension", extension).Info("Maximum session time extended")
-}
-
-// GetStats returns session statistics
-func (sm *Manager) GetStats() map[string]interface{} {
-	sm.lock.Lock()
-	defer sm.lock.Unlock()
-
-	return map[string]interface{}{
-		"running":       sm.running,
-		"idle_timeout":  sm.idleTimeout.String(),
-		"max_timeout":   sm.maxTimeout.String(),
-		"idle_time":     sm.GetIdleTime().String(),
-		"last_activity": sm.lastActivity.Format(time.RFC3339),
-	}
+	return idle, ReasonIdle
 }

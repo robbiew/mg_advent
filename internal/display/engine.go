@@ -760,6 +760,15 @@ func (de *DisplayEngine) MoveCursor(x, y int) error {
 	return nil
 }
 
+// ShowMessage clears the screen and prints a one-line notice in its centre.
+func (de *DisplayEngine) ShowMessage(text string) {
+	de.ClearScreen()
+	row := max(de.config.Height/2, 1)
+	col := max((de.config.Width-len(text))/2+1, 1)
+	fmt.Fprintf(de.output, Reset+Esc+"%d;%dH%s", row, col, text)
+	de.flushOutput()
+}
+
 // GetDimensions returns the display dimensions
 func (de *DisplayEngine) GetDimensions() (width, height int) {
 	return de.config.Width, de.config.Height

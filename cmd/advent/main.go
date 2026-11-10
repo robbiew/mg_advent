@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -30,21 +31,25 @@ var (
 var (
 	// Command line flags
 	localMode    = flag.Bool("local", false, "run in local UTF-8 mode")
-	debugDate    = flag.String("debug-date", "", "override date (YYYY-MM-DD)")
-	disableDate  = flag.Bool("debug-disable-date", false, "disable date validation")
-	dropfilePath = flag.String("path", "", "path to door32.sys file")
-	logonMode    = flag.Bool("logon", false, "logon mode: show current day's door, then COMEBACK.ANS and exit")
+	debugDate    = flag.String("debug-date", "", "pretend today is this date (YYYY-MM-DD)")
+	disableDate  = flag.Bool("debug-disable-date", false, "unlock every installed year and day")
+	dropfilePath = flag.String("path", "", "door32.sys file, or the directory containing it")
+	logonMode    = flag.Bool("logon", false, "logon mode: show today's door during the December season, then exit")
 	showVersion  = flag.Bool("version", false, "show version information")
 	noIce        = flag.Bool("noice", false, "disable ICE mode control codes (for terminals that don't support them)")
 	noDetect     = flag.Bool("nodetect", false, "disable terminal size detection (use default 80x25)")
 )
 
-func main() {
-	startTime := time.Now()
+const (
+	idleTimeout    = 5 * time.Minute   // no key for this long ends the session
+	maxSessionTime = 120 * time.Minute // upper bound, lowered by the caller's BBS time left
+	logonWait      = 30 * time.Second  // logon mode: how long today's door stays up without a key
+	exitScreenWait = 10 * time.Second  // goodbye / not-yet screens
+)
 
+func main() {
 	flag.Parse()
 
-	// Handle version flag
 	if *showVersion {
 		fmt.Printf("MiSTiGRiS Advent Calendar BBS Door %s\n", version)
 		fmt.Printf("Build Date: %s\n", buildDate)
@@ -52,111 +57,123 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Set log level - Default to ErrorLevel to hide info/debug messages from sysop console
+	// Default to ErrorLevel to hide info/debug messages from the sysop console.
 	logrus.SetLevel(logrus.ErrorLevel)
 	logrus.SetFormatter(&logrus.TextFormatter{
 		TimestampFormat: "15:04:05.000",
 		FullTimestamp:   true,
 	})
 
-	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Flags parsed")
+	os.Exit(run())
+}
 
-	// Initialize components with embedded art filesystem
-	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Creating art manager")
+// run is the door's body. It returns the process exit code; deferred cleanup
+// (terminal restore, closing the BBS session) runs before main exits.
+func run() int {
 	artManager := art.NewManager(embedded.ArtFS, "art")
-	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Creating navigator")
 	navigator := navigation.NewNavigator(embedded.ArtFS, "art")
-	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Creating validator")
 	validator := validation.NewValidator(embedded.ArtFS, "art")
-	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Components created")
-
-	// Determine display mode
-	// BBS mode: raw CP437 bytes (no conversion)
-	// Local mode: CP437 to UTF-8 conversion for terminal display
-	displayMode := display.ModeCP437Raw
-	if *localMode {
-		displayMode = display.ModeCP437
+	if err := configureCalendar(navigator, *debugDate, *disableDate); err != nil {
+		logrus.WithError(err).Error("Invalid date options")
+		return 1
 	}
 
-	// Initialize components with hard-coded sensible defaults
-	displayEngine := display.NewDisplayEngine(display.DisplayConfig{
-		Mode:   displayMode,
-		Width:  80, // Default, will be detected
-		Height: 25, // Default, will be detected
-		Theme:  "classic",
-		Scrolling: display.ScrollingConfig{
-			Enabled:           true,
-			Indicators:        false,
-			KeyboardShortcuts: true,
-		},
-		Columns: display.ColumnConfig{
-			Handle80ColumnIssue: true,
-			AutoDetectWidth:     true,
-		},
-		Performance: display.PerformanceConfig{
-			CacheEnabled: true,
-			CacheSizeMB:  50,
-			PreloadLines: 100,
-		},
-		NoIce: *noIce,
-	}, embedded.ArtFS)
+	// Logon mode only has something to show while a season is running. Bail
+	// out before touching the terminal so off-season logons stay silent.
+	if *logonMode {
+		if _, live := navigator.LiveYear(); !live {
+			logrus.Info("Logon mode: no advent season running today; nothing to show")
+			return 0
+		}
+	}
 
-	// Select the transport before any terminal probe or input read. Keep -path
-	// as a file path at the CLI; GoDoors expects its containing directory.
+	// Select the transport before any terminal probe or input read.
 	var doorInfo *gd.DropFile
 	if *dropfilePath != "" {
 		info, err := openDoor(*dropfilePath)
 		if err != nil {
 			logrus.WithError(err).Error("Failed to open BBS connection")
-			return
+			return 1
 		}
 		doorInfo = &info
 	}
 	defer gd.CloseSession()
+
 	inputHandler := input.NewInputHandler()
 	if err := inputHandler.Open(); err != nil {
 		logrus.WithError(err).Error("Failed to open input handler")
-		return
+		return 1
 	}
 	defer inputHandler.Close()
 
-	idleTimeout := 5 * time.Minute  // Hard-coded 5 minute idle timeout
-	maxTimeout := 120 * time.Minute // Hard-coded 2 hour max timeout
-
-	var sessionManager *session.Manager
-	sessionManager = session.NewManager(idleTimeout, maxTimeout,
-		func() {
-			cleanup(displayEngine, inputHandler, sessionManager)
-			os.Exit(0)
-		},
-		func() {
-			cleanup(displayEngine, inputHandler, sessionManager)
-			os.Exit(0)
-		})
-
-	// Get user information
-	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Getting user info")
 	user := getUserInfo(*localMode, doorInfo)
-	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Got user info")
-
-	// Detect terminal size (prefer BBS connection query over term.GetSize)
-	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Detecting terminal size")
 	width, height := detectTerminalSize(doorInfo != nil, *noDetect)
-	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Terminal size detected")
+	user.W, user.H = width, height
+	user.ModalW, user.ModalH = width, height
 
-	// Update user struct with detected terminal size
-	user.W = width
-	user.H = height
-	user.ModalW = width
-	user.ModalH = height
+	displayEngine := newDisplayEngine(width, height)
+	if doorInfo != nil {
+		displayEngine.SetBBSConnection(gd.Output())
+	}
 
-	logrus.WithFields(logrus.Fields{
-		"width":  width,
-		"height": height,
-	}).Info("Terminal size applied to user session")
+	if err := validator.ValidateTerminalSize(width, height); err != nil {
+		logrus.WithError(err).Warn("Terminal size validation failed - continuing anyway")
+	}
+	if err := validator.ValidateEmulation(user.Emulation); err != nil {
+		logrus.WithError(err).Warn("ANSI emulation validation failed - continuing anyway")
+	}
 
-	displayEngine = display.NewDisplayEngine(display.DisplayConfig{
-		Mode:   displayMode,
+	sess := session.NewManager(idleTimeout, sessionLimit(user))
+
+	if *logonMode {
+		runLogonMode(displayEngine, artManager, navigator, inputHandler, sess, user)
+		return 0
+	}
+
+	initialState, err := navigator.GetInitialState()
+	if errors.Is(err, navigation.ErrNoYearsAvailable) {
+		// Only possible when every installed year is still in the future.
+		displayNotYet(displayEngine, artManager, user, inputHandler)
+		return 0
+	}
+	if err != nil {
+		logrus.WithError(err).Error("Failed to get initial navigation state")
+		return 1
+	}
+	if err := validator.ValidateArtFiles(initialState.CurrentYear); err != nil {
+		logrus.WithError(err).Error("Art file validation failed")
+		return 1
+	}
+
+	prepareTerminal(displayEngine)
+	defer restoreTerminal(displayEngine)
+
+	runMainLoop(displayEngine, artManager, navigator, inputHandler, sess, initialState, user)
+	return 0
+}
+
+// configureCalendar applies the debug date options to the navigator.
+func configureCalendar(navigator *navigation.Navigator, date string, unlockAll bool) error {
+	navigator.SetDisableDateCheck(unlockAll)
+	if date == "" {
+		return nil
+	}
+	day, err := time.ParseInLocation("2006-01-02", date, time.Local)
+	if err != nil {
+		return fmt.Errorf("invalid -debug-date (expected YYYY-MM-DD): %w", err)
+	}
+	navigator.SetClock(func() time.Time { return day })
+	return nil
+}
+
+func newDisplayEngine(width, height int) *display.DisplayEngine {
+	// BBS mode: raw CP437 bytes. Local mode: CP437 converted to UTF-8.
+	mode := display.ModeCP437Raw
+	if *localMode {
+		mode = display.ModeCP437
+	}
+	return display.NewDisplayEngine(display.DisplayConfig{
+		Mode:   mode,
 		Width:  width,
 		Height: height,
 		NoIce:  *noIce,
@@ -176,91 +193,14 @@ func main() {
 			PreloadLines: 100,
 		},
 	}, embedded.ArtFS)
+}
 
-	// Configure BBS output (different behavior on Windows vs Linux)
-	if doorInfo != nil {
-		displayEngine.SetBBSConnection(gd.Output())
-		logrus.Info("Display engine configured for BBS output")
+// sessionLimit caps the session at the caller's remaining BBS time.
+func sessionLimit(user display.User) time.Duration {
+	if user.TimeLeft > 0 && user.TimeLeft < maxSessionTime {
+		return user.TimeLeft
 	}
-
-	// Validate terminal size
-	if err := validator.ValidateTerminalSize(width, height); err != nil {
-		logrus.WithError(err).Warn("Terminal size validation failed - continuing anyway")
-	}
-
-	// Validate ANSI emulation
-	if err := validator.ValidateEmulation(user.Emulation); err != nil {
-		logrus.WithError(err).Warn("ANSI emulation validation failed - continuing anyway")
-	}
-
-	// Get initial navigation state
-	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Getting initial state")
-	initialState, err := navigator.GetInitialState()
-	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Got initial state")
-	if err != nil {
-		logrus.WithError(err).Error("Failed to get initial navigation state")
-		return
-	}
-
-	// Apply debug overrides
-	if *disableDate || *debugDate != "" {
-		if *disableDate {
-			logrus.Info("Date validation disabled by debug flag")
-			navigator.SetDisableDateCheck(true)
-			// Recalculate MaxDay with date checking disabled
-			initialState, err = navigator.GetInitialState()
-			if err != nil {
-				logrus.WithError(err).Error("Failed to recalculate initial state after disabling date check")
-				return
-			}
-		}
-		if *debugDate != "" {
-			logrus.Info("Date validation skipped due to debug-date override")
-		}
-	} else {
-		if err := validator.ValidateDate(); err != nil {
-			displayNotYet(displayEngine, artManager, initialState.CurrentYear, user, inputHandler)
-			return
-		}
-	}
-
-	// Validate art files
-	if err := validator.ValidateArtFiles(initialState.CurrentYear); err != nil {
-		logrus.WithError(err).Error("Art file validation failed")
-		return
-	}
-
-	// Apply date override if specified
-	if *debugDate != "" {
-		if err := applyDateOverride(&initialState, *debugDate); err != nil {
-			logrus.WithError(err).Error("Failed to apply date override")
-			return
-		}
-	}
-
-	// Handle logon mode - skip welcome screen and go directly to current day's door
-	if *logonMode {
-		runLogonMode(displayEngine, artManager, inputHandler, sessionManager, initialState, user, validator)
-		return
-	}
-
-	// Start session manager
-	sessionManager.Start()
-	defer sessionManager.Stop()
-
-	// Hide cursor, enable blink mode, and clear screen for both BBS and local modes
-	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Hiding cursor, enabling blink mode, and clearing screen")
-	displayEngine.HideCursor()
-	displayEngine.EnableBlinkMode() // Disable ICE mode to enable ANSI blink
-	displayEngine.ClearScreen()
-	logrus.WithField("elapsed", time.Since(startTime)).Info("STARTUP: Screen ready, entering main loop")
-	defer func() {
-		displayEngine.DisableBlinkMode() // Re-enable ICE mode on exit
-		displayEngine.ShowCursor()       // Ensure cursor is shown on exit
-	}()
-
-	// Main application loop
-	runMainLoop(displayEngine, artManager, navigator, inputHandler, sessionManager, initialState, user)
+	return maxSessionTime
 }
 
 func getUserInfo(localMode bool, info *gd.DropFile) display.User {
@@ -278,9 +218,7 @@ func getUserInfo(localMode bool, info *gd.DropFile) display.User {
 		}
 	}
 
-	// BBS mode - parse door32.sys if available
 	logrus.Info("Running in BBS mode")
-
 	if info != nil {
 		return display.User{
 			Alias: info.Alias, TimeLeft: time.Duration(info.TimeLeft) * time.Minute,
@@ -301,6 +239,8 @@ func getUserInfo(localMode bool, info *gd.DropFile) display.User {
 	}
 }
 
+// openDoor accepts either the door32.sys file or the directory holding it, so
+// a BBS can pass its node directory or drop file path straight through.
 func openDoor(path string) (gd.DropFile, error) {
 	directory := path
 	info, err := os.Stat(path)
@@ -327,67 +267,82 @@ func detectTerminalSize(bbsMode, noDetect bool) (width, height int) {
 	if bbsMode {
 		gd.ClearScreen()
 	}
+	if !plausibleTermSize(width, height) {
+		logrus.WithFields(logrus.Fields{"width": width, "height": height}).
+			Warn("Implausible terminal size reported; using 80x25")
+		return 80, 25
+	}
 	return width, height
 }
 
-func applyDateOverride(state *navigation.State, dateStr string) error {
-	// Parse date string in YYYY-MM-DD format
-	parsedDate, err := time.Parse("2006-01-02", dateStr)
-	if err != nil {
-		return fmt.Errorf("invalid date format (expected YYYY-MM-DD): %w", err)
-	}
-
-	// Extract the day from the date
-	day := parsedDate.Day()
-
-	// Validate day is within advent calendar range (1-25)
-	if day < 1 || day > 25 {
-		return fmt.Errorf("day %d is out of advent calendar range (1-25)", day)
-	}
-
-	// Update state to simulate it being this date
-	// CurrentDay starts at 1, but MaxDay is set to the debug day
-	// This allows navigation from day 1 up to (and including) the debug day
-	state.CurrentDay = 1
-	state.MaxDay = day
-
-	logrus.WithFields(logrus.Fields{
-		"debugDate":  dateStr,
-		"currentDay": state.CurrentDay,
-		"maxDay":     state.MaxDay,
-	}).Info("Applied debug date override - simulating current date")
-
-	return nil
+// plausibleTermSize rejects probe answers the art cannot be drawn on. Some
+// terminals answer the size probe wrongly (e.g. half the real height), which
+// would otherwise truncate every screen.
+func plausibleTermSize(width, height int) bool {
+	return width >= 80 && height >= 24 && width < 999 && height < 999
 }
 
-func displayNotYet(displayEngine *display.DisplayEngine, artManager *art.Manager, year int, user display.User, inputHandler *input.InputHandler) {
-	// Display "not yet" screen
-	notYetPath := artManager.GetPath(year, 0, "notyet")
-	if notYetPath != "" {
+// errSessionOver reports that the caller ran out of idle or total time.
+type errSessionOver struct{ reason session.Reason }
+
+func (e errSessionOver) Error() string { return "session ended: " + e.reason.String() }
+
+// readKey waits for the caller's next key within the session's limits.
+func readKey(in *input.InputHandler, sess *session.Manager) (rune, input.Key, error) {
+	for {
+		wait, reason := sess.Next()
+		if wait <= 0 {
+			return 0, input.KeyUnknown, errSessionOver{reason}
+		}
+		ch, key, err := in.ReadKeyTimeout(wait)
+		if errors.Is(err, input.ErrTimeout) {
+			continue // re-check: the limit has now passed
+		}
+		if err != nil {
+			return 0, input.KeyUnknown, err
+		}
+		sess.Touch()
+		return ch, key, nil
+	}
+}
+
+func showSessionOver(displayEngine *display.DisplayEngine, reason session.Reason) {
+	msg := "Your time is up - returning you to the BBS..."
+	if reason == session.ReasonIdle {
+		msg = "No key pressed for a while - returning you to the BBS..."
+	}
+	displayEngine.ShowMessage(msg)
+	time.Sleep(2 * time.Second)
+}
+
+func prepareTerminal(displayEngine *display.DisplayEngine) {
+	displayEngine.HideCursor()
+	displayEngine.EnableBlinkMode() // Disable ICE mode to enable ANSI blink
+	displayEngine.ClearScreen()
+}
+
+func restoreTerminal(displayEngine *display.DisplayEngine) {
+	displayEngine.DisableBlinkMode() // Re-enable ICE mode
+	displayEngine.ShowCursor()
+	displayEngine.ClearScreen()            // ClearScreen flushes
+	fmt.Fprint(gd.Output(), display.Reset) // Reset colors
+}
+
+func displayNotYet(displayEngine *display.DisplayEngine, artManager *art.Manager, user display.User, inputHandler *input.InputHandler) {
+	if notYetPath := artManager.GetPath(0, 0, "notyet"); notYetPath != "" {
 		displayEngine.Display(notYetPath, user)
 	}
-
-	waitForKey(inputHandler, 10*time.Second)
+	waitForKey(inputHandler, exitScreenWait)
 }
 
 func waitForKey(handler *input.InputHandler, timeout time.Duration) {
-	if handler == nil {
-		time.Sleep(timeout)
-		return
-	}
-	if err := handler.Open(); err != nil {
-		time.Sleep(timeout)
-		return
-	}
-	defer handler.Close()
 	_, _, _ = handler.ReadKeyTimeout(timeout)
 }
 
 func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 	navigator *navigation.Navigator, inputHandler *input.InputHandler,
-	sessionManager *session.Manager, state navigation.State, user display.User) {
+	sess *session.Manager, state navigation.State, user display.User) {
 
-	loopStart := time.Now()
 	currentState := state
 	var currentArtPath string
 
@@ -396,16 +351,12 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 	var infoLines, membersLines []string
 	var infoScrollPos, membersScrollPos int
 
-	logrus.WithField("elapsed", time.Since(loopStart)).Info("MAINLOOP: Starting first iteration")
-
 	for {
 		// Display current screen only if the art path changed
 		var artPath string
 		switch currentState.Screen {
 		case navigation.ScreenWelcome:
-			logrus.WithField("elapsed", time.Since(loopStart)).Info("MAINLOOP: Getting welcome art path")
 			artPath = artManager.GetPath(currentState.CurrentYear, 0, "welcome")
-			logrus.WithField("elapsed", time.Since(loopStart)).WithField("path", artPath).Info("MAINLOOP: Got welcome art path")
 		case navigation.ScreenDay:
 			artPath = artManager.GetPath(currentState.CurrentYear, currentState.CurrentDay, "day")
 		case navigation.ScreenComeback:
@@ -416,248 +367,158 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 			artPath = artManager.GetPath(currentState.CurrentYear, 0, "members")
 		}
 
-		// Only display if art path changed
 		if artPath != "" && artPath != currentArtPath {
-			logrus.WithField("elapsed", time.Since(loopStart)).WithField("path", artPath).Info("MAINLOOP: About to display art")
 			logrus.WithFields(logrus.Fields{
-				"artPath":        artPath,
-				"currentArtPath": currentArtPath,
-				"screen":         currentState.Screen,
-				"day":            currentState.CurrentDay,
+				"artPath": artPath,
+				"screen":  currentState.Screen,
+				"day":     currentState.CurrentDay,
 			}).Debug("Displaying art")
 
 			switch currentState.Screen {
 			case navigation.ScreenInfo:
 				if !infoLoaded {
 					lines, err := displayEngine.LoadAnsiLines(artPath)
-					if err == nil {
-						infoLines = lines
-						infoLoaded = true
-						infoScrollPos = 0 // Always start at top
-					} else {
-						infoLines = []string{fmt.Sprintf("[Unable to load %s]", artPath)}
-						infoLoaded = true
-						infoScrollPos = 0
+					if err != nil {
+						lines = []string{fmt.Sprintf("[Unable to load %s]", artPath)}
 					}
+					infoLines, infoLoaded, infoScrollPos = lines, true, 0
 				}
-				// Always use scrolling logic for INFOFILE.ANS
 				displayEngine.SetScrollState(infoScrollPos, len(infoLines))
 				displayEngine.RenderScrollable(infoLines, infoScrollPos)
-				currentArtPath = artPath
 			case navigation.ScreenMembers:
 				if !membersLoaded {
 					lines, err := displayEngine.LoadAnsiLines(artPath)
-					if err == nil {
-						membersLines = lines
-						membersLoaded = true
-						membersScrollPos = 0 // Always start at top
-					} else {
-						membersLines = []string{fmt.Sprintf("[Unable to load %s]", artPath)}
-						membersLoaded = true
-						membersScrollPos = 0
+					if err != nil {
+						lines = []string{fmt.Sprintf("[Unable to load %s]", artPath)}
 					}
+					membersLines, membersLoaded, membersScrollPos = lines, true, 0
 				}
-				// Always use scrolling logic for MEMBERS.ANS
 				displayEngine.SetScrollState(membersScrollPos, len(membersLines))
 				displayEngine.RenderScrollable(membersLines, membersScrollPos)
-				currentArtPath = artPath
 			default:
-				logrus.WithField("elapsed", time.Since(loopStart)).Info("MAINLOOP: Calling displayEngine.Display()")
 				if err := displayEngine.Display(artPath, user); err != nil {
 					logrus.WithError(err).Error("Failed to display art")
 				}
-				logrus.WithField("elapsed", time.Since(loopStart)).Info("MAINLOOP: displayEngine.Display() returned")
-				currentArtPath = artPath
 			}
+			currentArtPath = artPath
 		}
 
-		// Get user input
-
-		logrus.WithField("elapsed", time.Since(loopStart)).Info("MAINLOOP: Now reading user input")
-		char, key, err := inputHandler.ReadKey()
-		logrus.WithField("elapsed", time.Since(loopStart)).Info("MAINLOOP: Got user input")
+		char, key, err := readKey(inputHandler, sess)
 		if err != nil {
-			logrus.WithError(err).Info("Input closed; ending door session")
-			break
+			var over errSessionOver
+			if errors.As(err, &over) {
+				logrus.WithField("reason", over.reason).Info("Session limit reached")
+				showSessionOver(displayEngine, over.reason)
+			} else {
+				logrus.WithError(err).Info("Input closed; ending door session")
+			}
+			return
 		}
 
 		// Handle scrolling for Info/Members screens
-		// Reserve last row for menu bar (user.H - 1 is usable height)
 		if currentState.Screen == navigation.ScreenInfo {
-			// Get the scroll state to determine visible lines
-			scrollState := displayEngine.GetScrollState()
-			visibleLines := scrollState.VisibleLines
-
+			visibleLines := displayEngine.GetScrollState().VisibleLines
 			if key == input.KeyArrowUp && infoScrollPos > 0 {
 				infoScrollPos--
-				logrus.WithField("infoScrollPos", infoScrollPos).Debug("Scrolling info up")
 				displayEngine.RenderScrollableContentOnly(infoLines, infoScrollPos)
 				continue
 			} else if key == input.KeyArrowDown && infoScrollPos < len(infoLines)-visibleLines {
 				infoScrollPos++
-				logrus.WithField("infoScrollPos", infoScrollPos).Debug("Scrolling info down")
 				displayEngine.RenderScrollableContentOnly(infoLines, infoScrollPos)
 				continue
-			} else if key == input.KeyArrowUp || key == input.KeyArrowDown {
-				logrus.WithFields(logrus.Fields{
-					"key":          key,
-					"scrollPos":    infoScrollPos,
-					"totalLines":   len(infoLines),
-					"visibleLines": visibleLines,
-					"maxScrollPos": len(infoLines) - visibleLines,
-				}).Debug("Arrow key pressed but bounds check failed")
 			}
 		} else if currentState.Screen == navigation.ScreenMembers {
-			// Get the scroll state to determine visible lines
-			scrollState := displayEngine.GetScrollState()
-			visibleLines := scrollState.VisibleLines
-
+			visibleLines := displayEngine.GetScrollState().VisibleLines
 			if key == input.KeyArrowUp && membersScrollPos > 0 {
 				membersScrollPos--
-				logrus.WithField("membersScrollPos", membersScrollPos).Debug("Scrolling members up")
 				displayEngine.RenderScrollableContentOnly(membersLines, membersScrollPos)
 				continue
 			} else if key == input.KeyArrowDown && membersScrollPos < len(membersLines)-visibleLines {
 				membersScrollPos++
-				logrus.WithField("membersScrollPos", membersScrollPos).Debug("Scrolling members down")
 				displayEngine.RenderScrollableContentOnly(membersLines, membersScrollPos)
 				continue
-			} else if key == input.KeyArrowUp || key == input.KeyArrowDown {
-				logrus.WithFields(logrus.Fields{
-					"key":          key,
-					"scrollPos":    membersScrollPos,
-					"totalLines":   len(membersLines),
-					"visibleLines": visibleLines,
-					"maxScrollPos": len(membersLines) - visibleLines,
-				}).Debug("Arrow key pressed but bounds check failed")
 			}
 		}
 
-		// Reset idle timer
-		sessionManager.ResetIdleTimer()
+		onYearMenu := currentState.Screen == navigation.ScreenWelcome || currentState.Screen == navigation.ScreenComeback
 
 		// Handle quit/back navigation
 		if char == 'q' || char == 'Q' || key == input.KeyEsc {
-			// Get the latest year from available years
 			latestYear := currentState.AvailableYears[len(currentState.AvailableYears)-1]
 
-			// Exit on Q/ESC from WELCOME or COMEBACK in the latest year
-			if (currentState.Screen == navigation.ScreenWelcome || currentState.Screen == navigation.ScreenComeback) && currentState.CurrentYear == latestYear {
-				// Only exit if we're on the welcome screen of the latest year (2025)
-				logrus.Info("User requested exit from latest year's welcome screen")
-				exitPath := artManager.GetPath(currentState.CurrentYear, 0, "goodbye")
-				if exitPath != "" {
+			switch {
+			case onYearMenu && currentState.CurrentYear == latestYear:
+				// Exit from the newest year's welcome/comeback screen
+				logrus.Info("User requested exit")
+				if exitPath := artManager.GetPath(currentState.CurrentYear, 0, "goodbye"); exitPath != "" {
 					displayEngine.Display(exitPath, user)
-
-					waitForKey(inputHandler, 10*time.Second)
+					waitForKey(inputHandler, exitScreenWait)
 				}
-				break
-			} else if currentState.Screen == navigation.ScreenInfo || currentState.Screen == navigation.ScreenMembers {
+				return
+			case currentState.Screen == navigation.ScreenInfo || currentState.Screen == navigation.ScreenMembers:
 				// Return to welcome screen from Info/Members
 				currentState.Screen = navigation.ScreenWelcome
-				infoScrollPos = 0
-				membersScrollPos = 0
-				// Reset loaded flags to ensure proper reloading next time
-				infoLoaded = false
-				membersLoaded = false
-				continue
-			} else {
-				// Go back to welcome screen of the latest year
-				logrus.Info("User requested return to welcome screen")
-
-				// Get the latest year from available years
-				latestYear := currentState.AvailableYears[len(currentState.AvailableYears)-1]
-
-				// Only change the year if we're not already in the latest year
-				if currentState.CurrentYear != latestYear {
-					logrus.WithFields(logrus.Fields{
-						"previousYear": currentState.CurrentYear,
-						"latestYear":   latestYear,
-					}).Info("Returning to latest year's welcome screen")
-					currentState.CurrentYear = latestYear
+				infoScrollPos, membersScrollPos = 0, 0
+				infoLoaded, membersLoaded = false, false
+			case currentState.CurrentYear != latestYear:
+				// Back to the newest year's welcome screen, recomputing its open days
+				if newState, _, err := navigator.SelectYear(latestYear, currentState); err == nil {
+					currentState = newState
 				}
-
+			default:
 				currentState.Screen = navigation.ScreenWelcome
-				continue
 			}
+			continue
 		}
 
 		// Handle year selection from welcome/comeback screen with numeric keys
-		if (currentState.Screen == navigation.ScreenWelcome || currentState.Screen == navigation.ScreenComeback) && char >= '1' && char <= '9' {
+		if onYearMenu && char >= '1' && char <= '9' {
 			yearIndex := int(char - '0')
-			newState, newArtPath, err := navigator.SelectYearByIndex(yearIndex, currentState)
-			if err != nil {
-				logrus.WithFields(logrus.Fields{
-					"index": yearIndex,
-					"char":  string(char),
-				}).Debug("Invalid year selection")
-				// Invalid selection, just ignore
-			} else {
-				logrus.WithFields(logrus.Fields{
-					"index":        yearIndex,
-					"selectedYear": newState.CurrentYear,
-					"artPath":      newArtPath,
-				}).Info("Year selected")
+			if newState, _, err := navigator.SelectYearByIndex(yearIndex, currentState); err == nil {
+				logrus.WithField("selectedYear", newState.CurrentYear).Info("Year selected")
 				currentState = newState
 			}
 			continue
 		}
 
 		// Handle Info/Members menu keys from welcome/comeback screen
-		if (currentState.Screen == navigation.ScreenWelcome || currentState.Screen == navigation.ScreenComeback) && (char == 'i' || char == 'I') {
+		if onYearMenu && (char == 'i' || char == 'I') {
 			currentState.Screen = navigation.ScreenInfo
-			infoScrollPos = 0
-			// Force reload of INFOFILE.ANS to ensure proper handling
-			infoLoaded = false
+			infoScrollPos, infoLoaded = 0, false
 			continue
 		}
-		if (currentState.Screen == navigation.ScreenWelcome || currentState.Screen == navigation.ScreenComeback) && (char == 'm' || char == 'M') {
+		if onYearMenu && (char == 'm' || char == 'M') {
 			currentState.Screen = navigation.ScreenMembers
-			membersScrollPos = 0
-			// Force reload of MEMBERS.ANS to ensure proper handling
-			membersLoaded = false
+			membersScrollPos, membersLoaded = 0, false
 			continue
 		}
 
-		// Handle scrolling keys first (if content is scrollable)
-		scrollHandled := false
+		// Handle scrolling of tall day art
 		if currentState.Screen == navigation.ScreenDay {
 			scrollState := displayEngine.GetScrollState()
-			switch key {
-			case input.KeyArrowUp:
-				if scrollState.CanScrollUp {
-					displayEngine.ScrollUp()
-					scrollHandled = true
-				}
-			case input.KeyArrowDown:
-				if scrollState.CanScrollDown {
-					displayEngine.ScrollDown()
-					scrollHandled = true
-				}
+			if key == input.KeyArrowUp && scrollState.CanScrollUp {
+				displayEngine.ScrollUp()
+				continue
 			}
-		}
-
-		// If scroll was handled, skip navigation
-		if scrollHandled {
-			continue
+			if key == input.KeyArrowDown && scrollState.CanScrollDown {
+				displayEngine.ScrollDown()
+				continue
+			}
 		}
 
 		// Handle navigation
 		var direction navigation.Direction
 
-		// Handle RETURN key on WELCOME/COMEBACK screen to navigate to current day (same as arrow right)
-		if (currentState.Screen == navigation.ScreenWelcome || currentState.Screen == navigation.ScreenComeback) && (key == input.KeyEnter) {
+		// RETURN on WELCOME/COMEBACK behaves like arrow right
+		if onYearMenu && key == input.KeyEnter {
 			direction = navigation.DirRight
-			logrus.Info("RETURN pressed on WELCOME - navigating to current day")
 		}
 
 		switch key {
 		case input.KeyArrowRight:
 			direction = navigation.DirRight
-			logrus.WithField("direction", "right").Debug("Right arrow pressed")
 		case input.KeyArrowLeft:
 			direction = navigation.DirLeft
-			logrus.WithField("direction", "left").Debug("Left arrow pressed")
 		case input.KeyPageUp:
 			direction = navigation.DirPageUp
 		case input.KeyPageDown:
@@ -668,105 +529,45 @@ func runMainLoop(displayEngine *display.DisplayEngine, artManager *art.Manager,
 			direction = navigation.DirEnd
 		}
 
-		if direction != 0 {
-			logrus.WithFields(logrus.Fields{
-				"direction":     direction,
-				"currentDay":    currentState.CurrentDay,
-				"currentScreen": currentState.Screen,
-			}).Debug("Attempting navigation")
-
-			newState, newArtPath, err := navigator.Navigate(direction, currentState)
+		if direction != navigation.DirNone {
+			newState, _, err := navigator.Navigate(direction, currentState)
 			if err != nil {
 				logrus.WithError(err).Error("Navigation error")
 				continue
 			}
-
-			logrus.WithFields(logrus.Fields{
-				"newDay":    newState.CurrentDay,
-				"newScreen": newState.Screen,
-				"artPath":   newArtPath,
-			}).Debug("Navigation result")
-
 			currentState = newState
-			if newArtPath != "" && newArtPath != artPath {
-				// Art path changed, will be displayed in next iteration
-			}
 		}
 	}
-
-	cleanup(displayEngine, inputHandler, sessionManager)
 }
 
-func runLogonMode(displayEngine *display.DisplayEngine, artManager *art.Manager, inputHandler *input.InputHandler, sessionManager *session.Manager, state navigation.State, user display.User, validator *validation.Validator) {
+// runLogonMode shows today's door once at logon, then returns to the BBS. The
+// caller has already checked that a season is running.
+func runLogonMode(displayEngine *display.DisplayEngine, artManager *art.Manager,
+	navigator *navigation.Navigator, inputHandler *input.InputHandler,
+	sess *session.Manager, user display.User) {
 
-	// Check if it's December (unless date validation is disabled)
-	if !*disableDate {
-		if err := validator.ValidateDate(); err != nil {
-			// Not December - show NOTYET.ANS with 10-second timeout
-			notYetPath := artManager.GetPath(state.CurrentYear, 0, "notyet")
-			if notYetPath != "" {
-				displayEngine.Display(notYetPath, user)
-			}
-
-			waitForKey(inputHandler, 10*time.Second)
-			return
-		}
-	}
-
-	// It's December - get current day
-	now := time.Now()
-	currentDay := now.Day()
-	if currentDay > 25 {
-		currentDay = 25
-	}
-
-	// Start session manager
-	sessionManager.Start()
-	defer sessionManager.Stop()
-
-	// Open input handler
-	if err := inputHandler.Open(); err != nil {
-		logrus.WithError(err).Error("Failed to open input handler in logon mode")
+	year, live := navigator.LiveYear()
+	if !live {
 		return
 	}
-	defer inputHandler.Close()
+	day := navigator.MaxDay(year)
 
-	// Hide cursor, enable blink mode, and clear screen
-	displayEngine.HideCursor()
-	displayEngine.EnableBlinkMode() // Disable ICE mode to enable ANSI blink
-	displayEngine.ClearScreen()
-	defer func() {
-		displayEngine.DisableBlinkMode() // Re-enable ICE mode on exit
-		displayEngine.ShowCursor()
-	}()
+	prepareTerminal(displayEngine)
+	defer restoreTerminal(displayEngine)
 
-	// Display current day's door art
-	dayArtPath := artManager.GetPath(state.CurrentYear, currentDay, "day")
-	if dayArtPath != "" {
-		if err := displayEngine.Display(dayArtPath, user); err != nil {
-			logrus.WithError(err).Error("Failed to display day art in logon mode")
-		}
+	if err := displayEngine.Display(artManager.GetPath(year, day, "day"), user); err != nil {
+		logrus.WithError(err).Error("Failed to display day art in logon mode")
 	}
 
-	// Wait for any key press
-	logrus.Info("Logon mode: waiting for key press on day art")
-	_, _, err := inputHandler.ReadKey()
-	if err != nil {
-		logrus.WithError(err).Error("Failed to read key in logon mode")
+	// Discard type-ahead (e.g. the LF after the caller's last Enter at the BBS)
+	// so it doesn't dismiss the art the instant it appears.
+	inputHandler.Drain(150*time.Millisecond, 64)
+
+	wait := logonWait
+	if left, _ := sess.Next(); left < wait {
+		wait = left
 	}
-
-	// Clean up and exit immediately after key press on day art
-	displayEngine.DisableBlinkMode() // Re-enable ICE mode
-	displayEngine.ShowCursor()
-	displayEngine.ClearScreen()
-	fmt.Fprint(gd.Output(), "\033[0m") // Reset colors
-}
-
-func cleanup(displayEngine *display.DisplayEngine, inputHandler *input.InputHandler, sessionManager *session.Manager) {
-	sessionManager.Stop()
-	inputHandler.Close()
-	displayEngine.DisableBlinkMode() // Re-enable ICE mode
-	displayEngine.ShowCursor()
-	displayEngine.ClearScreen()        // ClearScreen already flushes
-	fmt.Fprint(gd.Output(), "\033[0m") // Reset colors
+	if _, _, err := inputHandler.ReadKeyTimeout(wait); err != nil && !errors.Is(err, input.ErrTimeout) {
+		logrus.WithError(err).Info("Input closed in logon mode")
+	}
 }

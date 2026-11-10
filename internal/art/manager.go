@@ -72,32 +72,19 @@ func (m *Manager) GetPath(year int, day int, screenType string) string {
 	yearDir := path.Join(m.baseDir, strconv.Itoa(year))
 	commonDir := path.Join(m.baseDir, "common")
 
+	// Year screens prefer the year's own art and fall back to art/common, so a
+	// new year keeps working while its pack is still being delivered.
 	switch screenType {
 	case "welcome":
-		// Always use year-specific WELCOME.ANS
-		return path.Join(yearDir, "WELCOME.ANS")
+		return m.yearOrCommon(yearDir, commonDir, "WELCOME.ANS")
 	case "info":
-		// First check if year-specific INFOFILE.ANS exists
-		yearSpecificInfo := path.Join(yearDir, "INFOFILE.ANS")
-		if _, err := fs.Stat(m.fs, yearSpecificInfo); err == nil {
-			return yearSpecificInfo
-		}
-		// Fall back to root INFOFILE.ANS
-		return path.Join(m.baseDir, "INFOFILE.ANS")
+		return m.yearOrCommon(yearDir, commonDir, "INFOFILE.ANS")
 	case "members":
-		// First check if year-specific MEMBERS.ANS exists
-		yearSpecificMembers := path.Join(yearDir, "MEMBERS.ANS")
-		if _, err := fs.Stat(m.fs, yearSpecificMembers); err == nil {
-			return yearSpecificMembers
-		}
-		// Fall back to root MEMBERS.ANS
-		return path.Join(m.baseDir, "MEMBERS.ANS")
+		return m.yearOrCommon(yearDir, commonDir, "MEMBERS.ANS")
 	case "goodbye", "exit":
-		// Always use year-specific GOODBYE.ANS (like WELCOME.ANS)
-		return path.Join(yearDir, "GOODBYE.ANS")
+		return m.yearOrCommon(yearDir, commonDir, "GOODBYE.ANS")
 	case "comeback":
-		// Always use year-specific COMEBACK.ANS (like WELCOME.ANS and GOODBYE.ANS)
-		return path.Join(yearDir, "COMEBACK.ANS")
+		return m.yearOrCommon(yearDir, commonDir, "COMEBACK.ANS")
 	case "day":
 		// Try both zero-padded (01_DEC25.ANS) and single-digit (1_DEC25.ANS) formats
 		yearSuffix := strconv.Itoa(year)[2:]
@@ -140,6 +127,19 @@ func (m *Manager) GetPath(year int, day int, screenType string) string {
 	default:
 		return ""
 	}
+}
+
+// yearOrCommon returns the year's copy of name, else the common copy. When
+// neither exists it returns the year path; the display engine then shows
+// MISSING.ANS labelled with that name.
+func (m *Manager) yearOrCommon(yearDir, commonDir, name string) string {
+	yearPath := path.Join(yearDir, name)
+	for _, p := range []string{yearPath, path.Join(commonDir, name)} {
+		if _, err := fs.Stat(m.fs, p); err == nil {
+			return p
+		}
+	}
+	return yearPath
 }
 
 // ListYears returns all available years
