@@ -4,15 +4,24 @@
 # This script builds the application for multiple platforms
 # Optionally embeds Windows version information and application manifest
 #
-# Usage: ./build.sh
+# Usage: ./build.sh                    (version from `git describe`)
+#        VERSION=v2.0.0 ./build.sh     (explicit version)
 # Output: Creates binaries in dist/ directory
+#
+# Every binary is stamped with the version and build date (`advent -version`).
+# Placeholder art blocks the build; ALLOW_PLACEHOLDERS=1 allows a test build.
 
 set -e
+cd "$(dirname "$0")/.."
 
-echo "Building Mistigris Advent Calendar..."
+VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
+BUILD_DATE="$(date -u +%Y-%m-%d)"
+LDFLAGS="-s -w -X main.version=${VERSION} -X main.buildDate=${BUILD_DATE}"
+
+echo "Building Mistigris Advent Calendar ${VERSION} (${BUILD_DATE})..."
 
 # Refuse to build release binaries that embed placeholder art
-"$(dirname "$0")/check-placeholders.sh"
+./scripts/check-placeholders.sh
 
 # Default values
 OUTPUT_DIR="dist"
@@ -61,12 +70,12 @@ for platform in "${PLATFORMS[@]}"; do
             echo "        Install mingw-w64 to enable manifest embedding: apt-get install mingw-w64 or brew install mingw-w64"
         fi
         
-        GOOS="$GOOS" GOARCH="$GOARCH" CGO_ENABLED=0 go build -ldflags="-s -w" -o "$output_path" ./cmd/advent
+        GOOS="$GOOS" GOARCH="$GOARCH" CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o "$output_path" ./cmd/advent
         
         # Clean up resource file
         rm -f cmd/advent/resource.syso
     else
-        GOOS="$GOOS" GOARCH="$GOARCH" go build -ldflags="-s -w" -o "$output_path" ./cmd/advent
+        GOOS="$GOOS" GOARCH="$GOARCH" CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o "$output_path" ./cmd/advent
     fi
 
     # Create checksum
