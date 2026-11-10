@@ -4,12 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"path" // Use path instead of filepath for embedded FS (always forward slashes)
+	"log/slog"
 	"slices"
 	"strconv"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 // ErrNoYearsAvailable means no art year can be opened today: every installed
@@ -23,10 +21,8 @@ const (
 	ScreenWelcome ScreenType = iota
 	ScreenDay
 	ScreenComeback
-	ScreenYearSelect
-	ScreenInfo    // Info screen
-	ScreenMembers // Members screen
-	ScreenExit
+	ScreenInfo
+	ScreenMembers
 )
 
 // Direction represents navigation direction
@@ -36,8 +32,6 @@ const (
 	DirNone Direction = iota // 0 = no direction
 	DirLeft
 	DirRight
-	DirUp
-	DirDown
 	DirPageUp
 	DirPageDown
 	DirHome
@@ -159,103 +153,58 @@ func (n *Navigator) LiveYear() (int, bool) {
 	return 0, false
 }
 
-// Navigate handles navigation based on current state and direction
-func (n *Navigator) Navigate(direction Direction, currentState State) (newState State, artPath string, err error) {
-	switch currentState.Screen {
+// Navigate moves from the current screen in direction. Keys that don't
+// apply to the screen leave the state unchanged.
+func (n *Navigator) Navigate(direction Direction, state State) State {
+	switch state.Screen {
 	case ScreenWelcome:
-		return n.navigateFromWelcome(direction, currentState)
+		if direction == DirRight {
+			state.Screen = ScreenDay
+			state.CurrentDay = max(1, min(state.CurrentDay, state.MaxDay))
+		}
 	case ScreenDay:
-		return n.navigateFromDay(direction, currentState)
+		switch direction {
+		case DirRight:
+			if state.CurrentDay < state.MaxDay {
+				state.CurrentDay++
+			} else if state.MaxDay < 25 {
+				// Today's door is the last one open: invite the caller back tomorrow.
+				state.Screen = ScreenComeback
+			}
+		case DirLeft:
+			if state.CurrentDay > 1 {
+				state.CurrentDay--
+			} else {
+				state.Screen = ScreenWelcome
+			}
+		}
 	case ScreenComeback:
-		return n.navigateFromComeback(direction, currentState)
-	case ScreenYearSelect:
-		return n.navigateFromYearSelect(direction, currentState)
-	case ScreenInfo, ScreenMembers:
-		// Info and Members screens only support scrolling (handled elsewhere)
-		// Arrow keys, Page Up/Down, Home/End should be ignored for navigation
-		// Q/ESC handling is done in main loop
-		return currentState, "", nil
-	default:
-		return currentState, "", fmt.Errorf("unknown screen type: %d", currentState.Screen)
-	}
-}
-
-// navigateFromWelcome handles navigation from welcome screen
-func (n *Navigator) navigateFromWelcome(direction Direction, state State) (State, string, error) {
-	if direction != DirRight {
-		return state, "", nil
-	}
-	state.Screen = ScreenDay
-	state.CurrentDay = max(1, min(state.CurrentDay, state.MaxDay))
-	return state, n.getDayArtPath(state.CurrentYear, state.CurrentDay), nil
-}
-
-// navigateFromDay handles navigation from day screen
-func (n *Navigator) navigateFromDay(direction Direction, state State) (State, string, error) {
-	logrus.WithFields(logrus.Fields{
-		"direction":  direction,
-		"currentDay": state.CurrentDay,
-		"maxDay":     state.MaxDay,
-	}).Debug("navigateFromDay called")
-
-	switch direction {
-	case DirRight:
-		if state.CurrentDay < state.MaxDay {
-			state.CurrentDay++
-			return state, n.getDayArtPath(state.CurrentYear, state.CurrentDay), nil
+		if direction == DirLeft {
+			state.Screen = ScreenDay
+			state.CurrentDay = state.MaxDay
 		}
-		if state.MaxDay < 25 {
-			// Today's door is the last one open: invite the caller back tomorrow.
-			state.Screen = ScreenComeback
-			return state, n.getComebackArtPath(state.CurrentYear), nil
-		}
-		return state, "", nil
-	case DirLeft:
-		if state.CurrentDay > 1 {
-			state.CurrentDay--
-			return state, n.getDayArtPath(state.CurrentYear, state.CurrentDay), nil
-		}
-		state.Screen = ScreenWelcome
-		return state, n.getWelcomeArtPath(state.CurrentYear), nil
-	default:
-		return state, "", nil
 	}
-}
-
-// navigateFromComeback handles navigation from comeback screen
-func (n *Navigator) navigateFromComeback(direction Direction, state State) (State, string, error) {
-	if direction != DirLeft {
-		return state, "", nil
-	}
-	state.Screen = ScreenDay
-	state.CurrentDay = state.MaxDay
-	return state, n.getDayArtPath(state.CurrentYear, state.CurrentDay), nil
-}
-
-// navigateFromYearSelect handles navigation from year selection screen
-func (n *Navigator) navigateFromYearSelect(_ Direction, state State) (State, string, error) {
-	state.Screen = ScreenWelcome
-	return state, n.getWelcomeArtPath(state.CurrentYear), nil
+	return state
 }
 
 // SelectYear switches to year's welcome screen, recomputing which of its days
 // are open. year must be one of state.AvailableYears.
-func (n *Navigator) SelectYear(year int, state State) (State, string, error) {
+func (n *Navigator) SelectYear(year int, state State) (State, error) {
 	if !slices.Contains(state.AvailableYears, year) {
-		return state, "", fmt.Errorf("year %d not available", year)
+		return state, fmt.Errorf("year %d not available", year)
 	}
 	state.CurrentYear = year
 	state.MaxDay = n.MaxDay(year)
 	state.CurrentDay = 1
 	state.Screen = ScreenWelcome
-	return state, n.getWelcomeArtPath(year), nil
+	return state, nil
 }
 
 // SelectYearByIndex selects a year by its index (1-based) from available years
 // Years are sorted ascending (oldest first), so index 1 = oldest year, index 2 = next, etc.
-func (n *Navigator) SelectYearByIndex(index int, currentState State) (State, string, error) {
+func (n *Navigator) SelectYearByIndex(index int, currentState State) (State, error) {
 	if index < 1 || index > len(currentState.AvailableYears) {
-		return currentState, "", fmt.Errorf("invalid year index: %d", index)
+		return currentState, fmt.Errorf("invalid year index: %d", index)
 	}
 	return n.SelectYear(currentState.AvailableYears[index-1], currentState)
 }
@@ -273,10 +222,7 @@ func (n *Navigator) GetInitialState() (State, error) {
 	}
 
 	selectedYear := years[len(years)-1]
-	logrus.WithFields(logrus.Fields{
-		"visibleYears": years,
-		"selectedYear": selectedYear,
-	}).Info("Selected initial year")
+	slog.Info("selected initial year", "visible_years", years, "year", selectedYear)
 
 	return State{
 		CurrentYear:    selectedYear,
@@ -285,61 +231,4 @@ func (n *Navigator) GetInitialState() (State, error) {
 		MaxDay:         n.MaxDay(selectedYear),
 		AvailableYears: years,
 	}, nil
-}
-
-// getDayArtPath returns the path to a day's art file
-func (n *Navigator) getDayArtPath(year, day int) string {
-	yearDir := path.Join(n.baseArtDir, strconv.Itoa(year))
-	yearSuffix := strconv.Itoa(year)[2:]
-
-	// 2025 onward use zero-padded names (01_DEC25.ANS); earlier years do not
-	// (1_DEC24.ANS). Try the year's convention first, then the other.
-	padded := fmt.Sprintf("%02d_DEC%s.ANS", day, yearSuffix)
-	plain := fmt.Sprintf("%d_DEC%s.ANS", day, yearSuffix)
-	names := []string{plain, padded}
-	if year >= 2025 {
-		names = []string{padded, plain}
-	}
-	for _, name := range names {
-		p := path.Join(yearDir, name)
-		if _, err := fs.Stat(n.fs, p); err == nil {
-			return p
-		}
-	}
-	// Neither exists; the display engine falls back to MISSING.ANS.
-	return path.Join(yearDir, names[0])
-}
-
-// getWelcomeArtPath returns the path to the welcome art file
-func (n *Navigator) getWelcomeArtPath(year int) string {
-	return path.Join(n.baseArtDir, strconv.Itoa(year), "WELCOME.ANS")
-}
-
-// getComebackArtPath returns the path to the comeback art file
-func (n *Navigator) getComebackArtPath(year int) string {
-	return path.Join(n.baseArtDir, strconv.Itoa(year), "COMEBACK.ANS")
-}
-
-// ValidateState validates that the current state is consistent
-func (n *Navigator) ValidateState(state State) error {
-	if !slices.Contains(state.AvailableYears, state.CurrentYear) {
-		return fmt.Errorf("current year %d is not available", state.CurrentYear)
-	}
-	if state.CurrentDay < 1 || state.CurrentDay > 25 {
-		return fmt.Errorf("current day %d is out of range", state.CurrentDay)
-	}
-	if state.MaxDay < 1 || state.MaxDay > 25 {
-		return fmt.Errorf("max day %d is out of range", state.MaxDay)
-	}
-	return nil
-}
-
-// LogState logs the current navigation state
-func (n *Navigator) LogState(state State) {
-	logrus.WithFields(logrus.Fields{
-		"year":   state.CurrentYear,
-		"day":    state.CurrentDay,
-		"screen": state.Screen,
-		"maxDay": state.MaxDay,
-	}).Debug("Navigation state")
 }

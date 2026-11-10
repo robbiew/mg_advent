@@ -1,79 +1,34 @@
+// Package art maps screens to art files in the embedded art tree:
+// art/<year>/ holds a season's screens and days, art/common/ the fallbacks.
 package art
 
 import (
 	"fmt"
 	"io/fs"
-	"path" // Use path instead of filepath for embedded FS (always forward slashes)
+	"path" // embedded FS paths always use forward slashes
 	"strconv"
-	"strings"
-
-	"github.com/sirupsen/logrus"
 )
 
-// Manager handles art file management and caching
+// Manager resolves art paths.
 type Manager struct {
 	baseDir string
-	cache   map[string][]string
-	fs      fs.FS // Embedded filesystem
+	fs      fs.FS
 }
 
-// NewManager creates a new art manager using embedded filesystem
-func NewManager(embeddedFS fs.FS, baseDir string) *Manager {
-	return &Manager{
-		baseDir: baseDir,
-		cache:   make(map[string][]string),
-		fs:      embeddedFS,
-	}
+// NewManager creates a manager over the art tree rooted at baseDir in artFS.
+func NewManager(artFS fs.FS, baseDir string) *Manager {
+	return &Manager{baseDir: baseDir, fs: artFS}
 }
 
-// Validate checks if art files exist for the given year
-func (m *Manager) Validate(year int) error {
-	yearDir := path.Join(m.baseDir, strconv.Itoa(year))
-
-	// Check if year directory exists
-	if _, err := fs.Stat(m.fs, yearDir); err != nil {
-		return fmt.Errorf("art directory for year %d does not exist", year)
-	}
-
-	// Check common directory exists
-	commonDir := path.Join(m.baseDir, "common")
-	if _, err := fs.Stat(m.fs, commonDir); err != nil {
-		return fmt.Errorf("art/common directory does not exist")
-	}
-
-	// Required common files (year-independent)
-	requiredCommonFiles := []string{
-		path.Join(commonDir, "MISSING.ANS"),
-		path.Join(commonDir, "NOTYET.ANS"),
-	}
-
-	// Check required common files
-	for _, file := range requiredCommonFiles {
-		if _, err := fs.Stat(m.fs, file); err != nil {
-			return fmt.Errorf("required common art file missing: %s", path.Base(file))
-		}
-	}
-
-	// Check daily art files (1-25)
-	for day := 1; day <= 25; day++ {
-		fileName := fmt.Sprintf("%d_DEC%s.ANS", day, strconv.Itoa(year)[2:])
-		filePath := path.Join(yearDir, fileName)
-		if _, err := fs.Stat(m.fs, filePath); err != nil {
-			logrus.WithField("file", fileName).Warn("Daily art file missing")
-			// Don't fail validation for missing daily files, just warn
-		}
-	}
-
-	return nil
-}
-
-// GetPath returns the path to an art file
-func (m *Manager) GetPath(year int, day int, screenType string) string {
+// GetPath returns the art file for a screen of year ("welcome", "info",
+// "members", "goodbye", "comeback", "day", "missing" or "notyet"; day is
+// only used for "day"). Year screens prefer the year's own art and fall back
+// to art/common, so a new year works while its pack is still arriving. A
+// path that does not exist is shown as MISSING.ANS by the display engine.
+func (m *Manager) GetPath(year, day int, screenType string) string {
 	yearDir := path.Join(m.baseDir, strconv.Itoa(year))
 	commonDir := path.Join(m.baseDir, "common")
 
-	// Year screens prefer the year's own art and fall back to art/common, so a
-	// new year keeps working while its pack is still being delivered.
 	switch screenType {
 	case "welcome":
 		return m.yearOrCommon(yearDir, commonDir, "WELCOME.ANS")
@@ -86,40 +41,7 @@ func (m *Manager) GetPath(year int, day int, screenType string) string {
 	case "comeback":
 		return m.yearOrCommon(yearDir, commonDir, "COMEBACK.ANS")
 	case "day":
-		// Try both zero-padded (01_DEC25.ANS) and single-digit (1_DEC25.ANS) formats
-		yearSuffix := strconv.Itoa(year)[2:]
-
-		// First try the format that matches the year's convention
-		var primaryFileName, fallbackFileName string
-
-		// For 2025 and later, try zero-padded format first
-		if year >= 2025 {
-			// Zero-padded format (e.g., 01_DEC25.ANS)
-			primaryFileName = fmt.Sprintf("%02d_DEC%s.ANS", day, yearSuffix)
-			// Single-digit format as fallback (e.g., 1_DEC25.ANS)
-			fallbackFileName = fmt.Sprintf("%d_DEC%s.ANS", day, yearSuffix)
-		} else {
-			// For 2024 and earlier, try single-digit format first
-			primaryFileName = fmt.Sprintf("%d_DEC%s.ANS", day, yearSuffix)
-			// Zero-padded format as fallback
-			fallbackFileName = fmt.Sprintf("%02d_DEC%s.ANS", day, yearSuffix)
-		}
-
-		// Try primary format first
-		primaryPath := path.Join(yearDir, primaryFileName)
-		if _, err := fs.Stat(m.fs, primaryPath); err == nil {
-			return primaryPath
-		}
-
-		// Try fallback format if primary format doesn't exist
-		fallbackPath := path.Join(yearDir, fallbackFileName)
-		if _, err := fs.Stat(m.fs, fallbackPath); err == nil {
-			return fallbackPath
-		}
-
-		// If neither exists, return the primary format path
-		// This will eventually fall back to MISSING.ANS in the display engine
-		return primaryPath
+		return m.dayPath(yearDir, year, day)
 	case "missing":
 		return path.Join(commonDir, "MISSING.ANS")
 	case "notyet":
@@ -129,9 +51,32 @@ func (m *Manager) GetPath(year int, day int, screenType string) string {
 	}
 }
 
-// yearOrCommon returns the year's copy of name, else the common copy. When
-// neither exists it returns the year path; the display engine then shows
-// MISSING.ANS labelled with that name.
+// DayFileNames returns the two accepted names for a day's art, the year's own
+// convention first: 2025 onward pad the day (01_DEC25.ANS), earlier years do
+// not (1_DEC24.ANS).
+func DayFileNames(year, day int) [2]string {
+	suffix := fmt.Sprintf("%02d", year%100)
+	padded := fmt.Sprintf("%02d_DEC%s.ANS", day, suffix)
+	plain := fmt.Sprintf("%d_DEC%s.ANS", day, suffix)
+	if year >= 2025 {
+		return [2]string{padded, plain}
+	}
+	return [2]string{plain, padded}
+}
+
+func (m *Manager) dayPath(yearDir string, year, day int) string {
+	names := DayFileNames(year, day)
+	for _, name := range names {
+		p := path.Join(yearDir, name)
+		if _, err := fs.Stat(m.fs, p); err == nil {
+			return p
+		}
+	}
+	return path.Join(yearDir, names[0])
+}
+
+// yearOrCommon returns the year's copy of name, else the common copy, else
+// the year path (so MISSING.ANS is labelled with the year's file name).
 func (m *Manager) yearOrCommon(yearDir, commonDir, name string) string {
 	yearPath := path.Join(yearDir, name)
 	for _, p := range []string{yearPath, path.Join(commonDir, name)} {
@@ -140,170 +85,4 @@ func (m *Manager) yearOrCommon(yearDir, commonDir, name string) string {
 		}
 	}
 	return yearPath
-}
-
-// ListYears returns all available years
-func (m *Manager) ListYears() ([]int, error) {
-	var years []int
-
-	entries, err := fs.ReadDir(m.fs, m.baseDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read art directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			if year, err := strconv.Atoi(entry.Name()); err == nil {
-				// Validate it's a reasonable year
-				if year >= 2020 && year <= 2030 {
-					years = append(years, year)
-				}
-			}
-		}
-	}
-
-	return years, nil
-}
-
-// LoadArt loads and processes an art file
-func (m *Manager) LoadArt(filePath string) ([]string, error) {
-	// Check cache first
-	if cached, exists := m.cache[filePath]; exists {
-		return cached, nil
-	}
-
-	// Load file
-	content, err := fs.ReadFile(m.fs, filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read art file: %w", err)
-	}
-
-	// Process content
-	lines := m.processContent(content)
-
-	// Cache the result
-	m.cache[filePath] = lines
-
-	return lines, nil
-}
-
-// processContent processes raw file content into displayable lines
-func (m *Manager) processContent(content []byte) []string {
-	// Convert to string and trim SAUCE metadata
-	contentStr := string(content)
-	contentStr = m.trimSAUCE(contentStr)
-
-	// Split into lines
-	lines := strings.Split(contentStr, "\r\n")
-
-	// Trim empty lines at end
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
-
-	return lines
-}
-
-// trimSAUCE removes SAUCE metadata from content
-func (m *Manager) trimSAUCE(content string) string {
-	// Look for SAUCE marker
-	sauceIndex := strings.Index(content, "SAUCE00")
-	if sauceIndex == -1 {
-		return content
-	}
-
-	// Find the start of SAUCE metadata
-	comntIndex := strings.LastIndex(content[:sauceIndex], "COMNT")
-	if comntIndex == -1 {
-		comntIndex = sauceIndex
-	}
-
-	// Return content before SAUCE metadata
-	return content[:comntIndex]
-}
-
-// IsCached checks if a file is in cache
-func (m *Manager) IsCached(filePath string) bool {
-	_, exists := m.cache[filePath]
-	return exists
-}
-
-// ClearCache clears the art cache
-func (m *Manager) ClearCache() {
-	m.cache = make(map[string][]string)
-}
-
-// GetCacheSize returns the number of cached files
-func (m *Manager) GetCacheSize() int {
-	return len(m.cache)
-}
-
-// PreloadArt preloads art for a year into cache
-func (m *Manager) PreloadArt(year int, maxDay int) error {
-	logrus.WithField("year", year).Info("Preloading art files")
-
-	// Preload common and year-specific screens
-	screens := []string{"welcome", "goodbye", "comeback"}
-	for _, screen := range screens {
-		filePath := m.GetPath(year, 0, screen)
-		if filePath != "" {
-			if _, err := m.LoadArt(filePath); err != nil {
-				logrus.WithError(err).WithField("file", filePath).Warn("Failed to preload art file")
-			}
-		}
-	}
-
-	// Preload daily art up to maxDay
-	for day := 1; day <= maxDay && day <= 25; day++ {
-		filePath := m.GetPath(year, day, "day")
-		if filePath != "" {
-			if _, err := m.LoadArt(filePath); err != nil {
-				logrus.WithError(err).WithField("file", filePath).Warn("Failed to preload daily art")
-			}
-		}
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"year":   year,
-		"cached": m.GetCacheSize(),
-	}).Info("Art preloading complete")
-
-	return nil
-}
-
-// GetArtInfo returns information about an art file
-func (m *Manager) GetArtInfo(filePath string) (lines int, width int, height int, err error) {
-	content, err := m.LoadArt(filePath)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-
-	height = len(content)
-	width = 0
-
-	for _, line := range content {
-		if len(line) > width {
-			width = len(line)
-		}
-	}
-
-	return len(content), width, height, nil
-}
-
-// ValidateFile validates a single art file
-func (m *Manager) ValidateFile(filePath string) error {
-	if _, err := fs.Stat(m.fs, filePath); err != nil {
-		return fmt.Errorf("file does not exist: %s", filePath)
-	}
-
-	content, err := m.LoadArt(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to load file: %w", err)
-	}
-
-	if len(content) == 0 {
-		return fmt.Errorf("file is empty: %s", filePath)
-	}
-
-	return nil
 }
