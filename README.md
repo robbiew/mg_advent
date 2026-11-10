@@ -77,6 +77,7 @@ All DOS code and assets are in `dos/`. You need Turbo Pascal 7 or compatible.
 -nodetect              Use 80x25 without terminal probes
 -noice                 Don't send the blink/iCE colour mode sequence
 -log file              Append a detailed log to this file
+-slide duration        Slideshow speed, e.g. 5s (default 8s)
 -version               Show version information
 ```
 
@@ -120,7 +121,7 @@ placeholders, then replace them as the pack is delivered:
 2. Drop each real file in under the same name. The welcome and come-back
    screens are the year menu: `1` is the oldest year, counting up; `I`, `M`
    and `Q` are info, members and quit. List what is left with
-   `grep -rl ADVENT-PLACEHOLDER internal/embedded/art`.
+   `grep -rla ADVENT-PLACEHOLDER internal/embedded/art` (`-a`: art files look binary to grep).
 3. Preview with `./advent -local -debug-date=2026-12-03` (as callers see it
    on the 3rd) or `-debug-date=2026-12-25` (the whole season). The new year
    stays hidden from callers until 1 December, so it can ship early.
@@ -196,9 +197,12 @@ go test -race ./...
 
 | Screen | Keys |
 | --- | --- |
-| Welcome | `→` or Enter: open the calendar · `1`–`9`: pick a year (1 = oldest) · `[` `]` or PgUp/PgDn: previous / next year · `I` info · `M` members · `Q`/Esc: quit |
-| Day | `←` `→`: previous / next door · `↑` `↓`: scroll tall art · `Q`/Esc: back to Welcome |
+| Welcome | `→` or Enter: open the calendar (today's door in December) · `1`–`9`: pick a year (1 = oldest) · `[` `]` or PgUp/PgDn: previous / next year · `I` info · `M` members · `Q`/Esc: quit |
+| Day | `←` `→`: previous / next door · Home/End: first / last open door · PgUp/PgDn: back / ahead five doors · type `1`–`25`: jump to that door · `↑` `↓`: scroll tall art · `Q`/Esc: back to Welcome |
 | Info, Members | `↑` `↓`, PgUp/PgDn, Home/End: scroll · `Q`/Esc: back |
+| Anywhere | `A`: who made this art (title, artist, group from the file's SAUCE record) · `S`: slideshow through the year's open doors (any key stops) · `?`: key help |
+
+Outside December the welcome screen counts down to the next season's opening.
 
 ## License
 

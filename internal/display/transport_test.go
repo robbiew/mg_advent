@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"io/fs"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -127,13 +129,142 @@ func TestSplitArtTrimsOnlySauce(t *testing.T) {
 	}
 }
 
-func TestFit80Columns(t *testing.T) {
-	line := Esc + "31m" + strings.Repeat("x", 85) + Reset
-	got := fit80Columns([]string{line, "short"}, 25)
-	if countVisibleChars(got[0]) != 79 || !strings.HasSuffix(got[0], Reset) {
-		t.Fatalf("line not cut to 79 cells with trailing codes kept: %q", got[0])
+func TestToRows(t *testing.T) {
+	red := Esc + "31m"
+	cases := []struct {
+		name  string
+		lines []string
+		want  []int // cells per row
+	}{
+		{"short lines stay one row each", []string{"abc", ""}, []int{3, 0}},
+		{"exactly 80 cells is one row", []string{strings.Repeat("x", 80)}, []int{80}},
+		{"160 cells wrap to two rows", []string{red + strings.Repeat("y", 160) + Reset}, []int{80, 80}},
+		{"a 2000-cell stream fills 25 rows", []string{strings.Repeat("z", 2000)}, nil},
+		{"cursor-forward counts as cells", []string{"ab" + Esc + "100C" + "cd"}, []int{80, 24}},
 	}
-	if got[1] != "short" {
-		t.Fatalf("short line changed: %q", got[1])
+	for _, c := range cases {
+		rows := toRows(c.lines, 80)
+		if c.want == nil {
+			if len(rows) != 25 {
+				t.Errorf("%s: %d rows", c.name, len(rows))
+			}
+			continue
+		}
+		var got []int
+		for _, r := range rows {
+			got = append(got, cellsIn(r))
+		}
+		if fmt.Sprint(got) != fmt.Sprint(c.want) {
+			t.Errorf("%s: cells per row %v, want %v", c.name, got, c.want)
+		}
+	}
+	// Colour codes stay in the row where they occur.
+	rows := toRows([]string{red + strings.Repeat("y", 100)}, 80)
+	if !strings.HasPrefix(rows[0], red) || strings.Contains(rows[1], red) {
+		t.Errorf("escape codes moved between rows: %q", rows)
+	}
+}
+
+func TestCursorPositionedArtIsDrawnAsAStream(t *testing.T) {
+	art := Esc + "1;1Hfirst" + Esc + "25;80Hx"
+	fs := fstest.MapFS{"art/pos.ans": {Data: []byte(art)}}
+	var out countingWriter
+	de := engineTo(ModeCP437Raw, fs, &out)
+	de.Display("art/pos.ans")
+	if !strings.Contains(out.String(), Esc+"25;79H") {
+		t.Fatalf("bottom-right cursor position not moved to column 79: %q", out.String())
+	}
+	if de.GetScrollState().CanScrollDown {
+		t.Fatal("positioned art should not scroll")
+	}
+}
+
+// Splitting into rows must keep every cell of every bundled file.
+func TestBundledArtKeepsItsContent(t *testing.T) {
+	err := fs.WalkDir(embedded.ArtFS, "art", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".ANS") {
+			return err
+		}
+		raw, _ := fs.ReadFile(embedded.ArtFS, p)
+		lines := splitArt(string(raw))
+		if hasPositioning(lines) {
+			t.Errorf("%s uses cursor positioning; check it still draws correctly", p)
+			return nil
+		}
+		before, after := 0, 0
+		for _, l := range lines {
+			before += cellsIn(l)
+		}
+		for _, r := range toRows(lines, 80) {
+			if n := cellsIn(r); n > 80 {
+				t.Errorf("%s: a row has %d cells", p, n)
+			}
+			after += cellsIn(r)
+		}
+		if before != after {
+			t.Errorf("%s: %d cells before splitting, %d after", p, before, after)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Art drawn for autowrap (four lines filling 25 rows) must not overflow an
+// 80x24 terminal: it scrolls by rows instead (Codex review on #8).
+func TestWrappedArtScrollsOn80x24(t *testing.T) {
+	const door = "art/2025/01_DEC25.ANS"
+	de := NewDisplayEngine(DisplayConfig{Mode: ModeCP437Raw, Width: 80, Height: 24}, embedded.ArtFS)
+	var out countingWriter
+	de.SetOutput(&out)
+	if err := de.Display(door); err != nil {
+		t.Fatal(err)
+	}
+	s := de.GetScrollState()
+	if s.TotalLines != 25 || !s.CanScrollDown {
+		t.Fatalf("scroll state %+v, want 25 rows that scroll", s)
+	}
+	pos := regexp.MustCompile(`\x1b\[(\d+);1H`)
+	for _, m := range pos.FindAllStringSubmatch(out.String(), -1) {
+		if row, _ := strconv.Atoi(m[1]); row > 24 {
+			t.Fatalf("drew on row %d of a 24-row screen", row)
+		}
+	}
+	out.Reset()
+	de.ScrollDown()
+	if strings.Contains(out.String(), EraseScreen) {
+		t.Fatal("scrolling wrapped art should repaint in place")
+	}
+}
+
+func TestBottomRightCellStaysEmpty(t *testing.T) {
+	fs := fstest.MapFS{"art/full.ans": {Data: []byte(strings.Repeat("#", 80*25))}}
+	var out countingWriter
+	de := engineTo(ModeCP437Raw, fs, &out)
+	de.Display("art/full.ans")
+	last := out.String()[strings.LastIndex(out.String(), Esc+"25;1H"):]
+	if n := strings.Count(last, "#"); n != 79 {
+		t.Fatalf("bottom row drew %d cells, want 79", n)
+	}
+}
+
+// Panels must stay inside 79 columns, whatever they're given.
+func TestPanelFitsTheScreen(t *testing.T) {
+	var out countingWriter
+	de := engineTo(ModeCP437Raw, fstest.MapFS{}, &out)
+	long := strings.Repeat("x", 200)
+	de.ShowPanel(long, []string{"short", long})
+	rows := regexp.MustCompile(`\x1b\[(\d+);(\d+)H`)
+	parts := rows.Split(out.String(), -1)
+	cols := rows.FindAllStringSubmatch(out.String(), -1)
+	if len(cols) < 4 {
+		t.Fatalf("panel drew %d rows", len(cols))
+	}
+	for i, m := range cols {
+		col, _ := strconv.Atoi(m[2])
+		if end := col - 1 + cellsIn(parts[i+1]); end > 79 {
+			t.Errorf("panel row %s reaches column %d", m[1], end)
+		}
 	}
 }

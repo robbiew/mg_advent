@@ -22,6 +22,9 @@ Only "-path" is required:
   -noice
       Don't send the blink/iCE colour mode sequence
 
+  -slide <duration>
+      Slideshow speed, e.g. 5s (default 8s)
+
   -log <file>
       Append a detailed log to this file. Without it, only errors are
       written, to stderr (which some BBSes show to the caller).
@@ -42,7 +45,9 @@ KEYS
             1-9: pick a year (1 = oldest)   [ ] or PgUp/PgDn: prev/next year
             I: info file   M: member list   Q / Esc: quit
   Day       Left / Right: previous / next door   Up / Down: scroll tall art
-            Q / Esc: back to the welcome screen
+            Home / End: first / last open door   PgUp / PgDn: five doors
+            Type 1-25: jump to that door   Q / Esc: back to welcome
+  Anywhere  A: art credits   S: slideshow (any key stops)   ?: key help
 
 
 HOW THE CALENDAR OPENS

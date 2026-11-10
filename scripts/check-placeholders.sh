@@ -2,7 +2,7 @@
 # Fails while placeholder art (from tools/mkplaceholders) is still embedded,
 # so a release can't ship it. Set ALLOW_PLACEHOLDERS=1 for a test build.
 cd "$(dirname "$0")/.." || exit 1
-files=$(grep -rl --include='*.ANS' ADVENT-PLACEHOLDER internal/embedded/art 2>/dev/null)
+files=$(grep -rla --include='*.ANS' ADVENT-PLACEHOLDER internal/embedded/art 2>/dev/null)
 [ -z "$files" ] && exit 0
 count=$(echo "$files" | wc -l)
 if [ "${ALLOW_PLACEHOLDERS:-0}" = "1" ]; then

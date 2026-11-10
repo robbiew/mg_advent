@@ -31,14 +31,13 @@ const (
 func sgr(codes string) string { return "\x1b[" + codes + "m" }
 
 var (
-	reset   = sgr("0")
-	border  = sgr("0;1;32") // bright green
-	red     = sgr("0;1;31")
-	yellow  = sgr("0;1;33")
-	white   = sgr("0;1;37")
-	cyan    = sgr("0;36")
-	grey    = sgr("0;1;30")
-	menuKey = sgr("0;1;37;41") // white on red
+	reset  = sgr("0")
+	border = sgr("0;1;32") // bright green
+	red    = sgr("0;1;31")
+	yellow = sgr("0;1;33")
+	white  = sgr("0;1;37")
+	cyan   = sgr("0;36")
+	grey   = sgr("0;1;30")
 )
 
 // line is one row of a framed screen: plain CP437 text (no escapes, so its
@@ -144,7 +143,8 @@ func menuLines(year int, earlier []int) []line {
 	}
 	return append(out,
 		line{"[ ]  or  PGUP PGDN   previous / next year", cyan},
-		line{"I  INFOFILE      M  MEMBERLIST      Q  QUIT", cyan})
+		line{"I  INFO   M  MEMBERS   A  CREDITS   S  SLIDESHOW", cyan},
+		line{"?  HELP      Q  QUIT", cyan})
 }
 
 func tallScreen(s screen, year int) []string {

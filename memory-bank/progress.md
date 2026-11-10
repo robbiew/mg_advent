@@ -32,6 +32,15 @@ build/release scripts; colours preserved when scrolling (matters on 80x24
 terminals, where 25-row days scroll); `[` `]` / PgUp PgDn year stepping
 beyond key 9.
 
+**Branch `feat/navigation-extras`**: Enter opens today's door in season;
+Home/End and PgUp/PgDn on doors; type a door number to jump; `?` help;
+`A` SAUCE credits; `S` slideshow (`-slide`); off-season countdown; main loop
+moved into a `door` type (cmd/advent/door.go). Also fixes a regression from
+PR #6: lines were cut to 79 cells, destroying art drawn for autowrap
+(2025 doors 1, 7, 9, 12, 14, 17, 25). Art is now split into the screen rows
+it fills and drawn row by row, so nothing is cut, column 80 shows, and
+25-row art scrolls on 80x24 instead of overflowing (Codex review on #8).
+
 ## Open items
 
 - **Issue #2**: confirm on a live Windows board (e.g. Synchronet) that telnet
