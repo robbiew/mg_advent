@@ -13,6 +13,7 @@ import (
 
 	"github.com/robbiew/advent/internal/display"
 	gd "github.com/robbiew/godoors"
+	"golang.org/x/text/encoding/charmap"
 )
 
 func TestDoorProcess(t *testing.T) {
@@ -65,7 +66,7 @@ func TestDoorNoDetectAndDisconnect(t *testing.T) {
 		if bytes.Contains(out, []byte("\x1b[6n")) || bytes.Contains(out, []byte("\x1b[c")) {
 			t.Fatal("-nodetect sent a probe")
 		}
-		if bytes.Contains(out, []byte(display.DisableIceMode)) || bytes.Contains(out, []byte(display.EnableIceMode)) {
+		if bytes.Contains(out, []byte(display.BlinkMode)) {
 			t.Fatal("-noice changed ICE mode")
 		}
 		if !bytes.Contains(out, []byte(display.ShowCursor)) {
@@ -109,7 +110,8 @@ func TestGoDoorsUserMetadata(t *testing.T) {
 	}
 }
 
-// artLine returns a middle line of an art file as the local-mode door renders it.
+// artLine returns a middle line of an art file as the local-mode door renders
+// it: the engine keeps CP437 and converts to UTF-8 on output.
 func artLine(t *testing.T, path string) []byte {
 	t.Helper()
 	de := newDisplayEngine(80, 25)
@@ -117,12 +119,14 @@ func artLine(t *testing.T, path string) []byte {
 	if err != nil || len(lines) < 6 {
 		t.Fatalf("load %s: %v", path, err)
 	}
-	return []byte(lines[5])
+	line, err := charmap.CodePage437.NewDecoder().Bytes([]byte(lines[5]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return line
 }
 
 func TestOffSeasonOpensArchive(t *testing.T) {
-	*localMode = true
-	defer func() { *localMode = false }()
 	welcome := artLine(t, "art/2025/WELCOME.ANS")
 	notYet := artLine(t, "art/common/NOTYET.ANS")
 

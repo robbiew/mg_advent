@@ -11,8 +11,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.21.x'
-      - run: go test -race -timeout 60s ./...
+          go-version-file: go.mod
+      - name: gofmt
+        if: runner.os == 'Linux'
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - run: go vet ./...
+      - run: go test -race -timeout 120s ./...
       - name: Windows 32-bit tests
         if: runner.os == 'Windows'
         env:

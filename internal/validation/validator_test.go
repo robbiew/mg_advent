@@ -1,69 +1,47 @@
 package validation
 
 import (
+	"strings"
 	"testing"
 	"testing/fstest"
-	"time"
 )
 
-func TestRequireKey(t *testing.T) {
-	// Create a mock filesystem
-	mockFS := fstest.MapFS{}
-
-	// Create a validator
-	validator := NewValidator(mockFS, "art")
-
-	// Use monkey patching to override time.Now for testing
-	// Save the original function
-	originalTimeNow := timeNow
-	defer func() { timeNow = originalTimeNow }()
-
-	// Test with current year set to 2025
-	timeNow = func() time.Time {
-		return time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC)
+func TestValidateArtFiles(t *testing.T) {
+	common := fstest.MapFS{
+		"art/common/MISSING.ANS": {},
+		"art/common/NOTYET.ANS":  {},
+	}
+	withYear := func(files ...string) fstest.MapFS {
+		fs := fstest.MapFS{}
+		for k, v := range common {
+			fs[k] = v
+		}
+		for _, f := range files {
+			fs["art/2026/"+f] = &fstest.MapFile{}
+		}
+		return fs
 	}
 
-	// Test cases for 2025
-	testCases := []struct {
-		name     string
-		year     int
-		expected bool
-	}{
-		{"Current year (2025) doesn't require key", 2025, false},
-		{"Older year (2024) requires key when current year is 2025", 2024, true},
-		{"Older year (2023) requires key when current year is 2025", 2023, true},
+	// A partly delivered year (no screens, one day) is still valid.
+	if err := NewValidator(withYear("01_DEC26.ANS"), "art").ValidateArtFiles(2026); err != nil {
+		t.Fatalf("partial year rejected: %v", err)
 	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result := validator.RequireKey(tc.year)
-			if result != tc.expected {
-				t.Errorf("RequireKey(%d) = %v, expected %v", tc.year, result, tc.expected)
-			}
-		})
+	if err := NewValidator(withYear(), "art").ValidateArtFiles(2027); err == nil {
+		t.Fatal("a year with no directory should fail")
 	}
-
-	// Now test with current year set to 2024
-	timeNow = func() time.Time {
-		return time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC)
+	noCommon := fstest.MapFS{"art/2026/WELCOME.ANS": {}}
+	err := NewValidator(noCommon, "art").ValidateArtFiles(2026)
+	if err == nil || !strings.Contains(err.Error(), "MISSING.ANS") {
+		t.Fatalf("missing common fallbacks should fail, got %v", err)
 	}
+}
 
-	// Additional test cases for 2024
-	additionalTestCases := []struct {
-		name     string
-		year     int
-		expected bool
-	}{
-		{"Current year (2024) doesn't require key", 2024, false},
-		{"Older year (2023) doesn't require key when current year is 2024", 2023, false},
+func TestValidateTerminal(t *testing.T) {
+	v := NewValidator(fstest.MapFS{}, "art")
+	if v.ValidateTerminalSize(80, 24) != nil || v.ValidateTerminalSize(79, 25) == nil || v.ValidateTerminalSize(80, 23) == nil {
+		t.Fatal("terminal size bounds wrong")
 	}
-
-	for _, tc := range additionalTestCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result := validator.RequireKey(tc.year)
-			if result != tc.expected {
-				t.Errorf("RequireKey(%d) = %v, expected %v", tc.year, result, tc.expected)
-			}
-		})
+	if v.ValidateEmulation(1) != nil || v.ValidateEmulation(0) == nil {
+		t.Fatal("emulation check wrong")
 	}
 }

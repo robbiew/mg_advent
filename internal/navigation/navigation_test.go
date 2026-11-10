@@ -114,17 +114,20 @@ func TestUnlockAll(t *testing.T) {
 
 func TestSelectYearRecomputesDays(t *testing.T) {
 	n := navAt(t, "2026-12-03")
-	state, _ := n.GetInitialState()
-	state, _, err := n.SelectYearByIndex(1, state) // 2023
+	state, err := n.GetInitialState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err = n.SelectYearByIndex(1, state) // 2023
 	if err != nil || state.CurrentYear != 2023 || state.MaxDay != 25 {
 		t.Fatalf("select 2023: %+v, %v", state, err)
 	}
 	state.CurrentDay, state.Screen = 20, ScreenDay
-	state, _, err = n.SelectYear(2026, state)
+	state, err = n.SelectYear(2026, state)
 	if err != nil || state.MaxDay != 3 || state.CurrentDay != 1 || state.Screen != ScreenWelcome {
 		t.Fatalf("back to live year: %+v, %v", state, err)
 	}
-	if _, _, err := n.SelectYear(2031, state); err == nil {
+	if _, err := n.SelectYear(2031, state); err == nil {
 		t.Fatal("selecting an unavailable year should fail")
 	}
 }
@@ -132,11 +135,11 @@ func TestSelectYearRecomputesDays(t *testing.T) {
 func TestComebackOnlyDuringLiveSeason(t *testing.T) {
 	n := navAt(t, "2026-12-03")
 	live := State{CurrentYear: 2026, CurrentDay: 3, MaxDay: 3, Screen: ScreenDay}
-	if s, _, _ := n.Navigate(DirRight, live); s.Screen != ScreenComeback {
+	if s := n.Navigate(DirRight, live); s.Screen != ScreenComeback {
 		t.Fatalf("past today's door should show COMEBACK, got %v", s.Screen)
 	}
 	archive := State{CurrentYear: 2024, CurrentDay: 25, MaxDay: 25, Screen: ScreenDay}
-	if s, _, _ := n.Navigate(DirRight, archive); s.Screen != ScreenDay || s.CurrentDay != 25 {
+	if s := n.Navigate(DirRight, archive); s.Screen != ScreenDay || s.CurrentDay != 25 {
 		t.Fatalf("archive day 25 should stay put, got %+v", s)
 	}
 }

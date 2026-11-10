@@ -116,75 +116,13 @@ func translateKey(ch rune, key gd.Key) (rune, Key, error) {
 	case '\t':
 		return 0, KeyTab, nil
 	}
-	if IsPrintable(ch) {
+	if isPrintable(ch) {
 		return ch, KeyUnknown, nil
 	}
 	return 0, KeyUnknown, nil
 }
 
-// IsPrintable checks if a rune is printable
-func IsPrintable(r rune) bool {
+// isPrintable reports whether r is printable ASCII.
+func isPrintable(r rune) bool {
 	return r >= 32 && r <= 126
-}
-
-// KeyToString converts a Key to its string representation
-func KeyToString(key Key) string {
-	switch key {
-	case KeyEsc:
-		return "Esc"
-	case KeyEnter:
-		return "Enter"
-	case KeySpace:
-		return "Space"
-	case KeyBackspace:
-		return "Backspace"
-	case KeyTab:
-		return "Tab"
-	case KeyArrowUp:
-		return "↑"
-	case KeyArrowDown:
-		return "↓"
-	case KeyArrowLeft:
-		return "←"
-	case KeyArrowRight:
-		return "→"
-	case KeyPageUp:
-		return "PageUp"
-	case KeyPageDown:
-		return "PageDown"
-	case KeyHome:
-		return "Home"
-	case KeyEnd:
-		return "End"
-	case KeyInsert:
-		return "Insert"
-	case KeyDelete:
-		return "Delete"
-	case KeyF1:
-		return "F1"
-	case KeyF2:
-		return "F2"
-	case KeyF3:
-		return "F3"
-	case KeyF4:
-		return "F4"
-	case KeyF5:
-		return "F5"
-	case KeyF6:
-		return "F6"
-	case KeyF7:
-		return "F7"
-	case KeyF8:
-		return "F8"
-	case KeyF9:
-		return "F9"
-	case KeyF10:
-		return "F10"
-	case KeyF11:
-		return "F11"
-	case KeyF12:
-		return "F12"
-	default:
-		return "Unknown"
-	}
 }
